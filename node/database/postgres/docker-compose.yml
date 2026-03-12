@@ -1,0 +1,35 @@
+version: "3.9"
+
+services:
+
+  postgresDB:
+    platform: linux/amd64
+    image: postgres:18
+    container_name: PostgresDB
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: testdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+  api:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nprisma
+    container_name: nprisma         
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgresDB:5432/testdb
+      PORT: "3000"
+    depends_on:
+      - postgresDB
+
+volumes:
+  postgres_data:
