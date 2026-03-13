@@ -1,0 +1,24 @@
+# Docker Compose configuration for PostgreSQL and API service
+# This setup includes a PostgreSQL database and an API service that connects to it.
+# The PostgreSQL service is configured with environment variables for the database user, password, and name.
+# The API service is built from a Dockerfile and depends on the PostgreSQL service.
+# Environment variables for the API service are passed from the host machine, allowing for flexibility in configuration
+
+# This file is used for development environment. It maps the PostgreSQL port to 5433 and sets up a development database.
+# The API service is configured to use the development database and runs in development mode with hot-re
+
+services:
+  postgresDB:
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: devdb
+
+  nodeapi:
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      DATABASE_URL: ${DATABASE_URL}
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: sh -c "npx prisma migrate dev && npm run dev"

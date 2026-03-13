@@ -1,0 +1,13 @@
+services:
+
+  postgres:
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_DB: demodb
+
+  api:
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      DATABASE_URL: ${DATABASE_URL}
+    command: sh -c "npx prisma migrate deploy && node src/server.js"

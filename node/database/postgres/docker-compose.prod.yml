@@ -1,0 +1,17 @@
+services:
+
+  postgres:
+    environment:
+      POSTGRES_DB: proddb
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+
+  api:
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      DATABASE_URL: ${DATABASE_URL}
+    command: sh -c "npx prisma migrate deploy && node src/server.js"
+    restart: always
+
+volumes:
+  postgres_prod_data:
