@@ -25,8 +25,8 @@ A full-stack REST API prototype built with Node.js and Prisma ORM for managing u
 - RESTful API endpoints
 
 **Quick Start**:
-- Local: See [node/database/LOCAL.md](node/database/postgres/README.md) for setup instructions
-- Docker: See [node/database/DOCKER.md](node/database/postgres/README.md) for Docker deployment
+- Local: See [node/database/LOCAL.md](node/database/LOCAL.md) for setup instructions
+- Docker: See [node/database/DOCKER.md](node/database/DOCKER.md) for Docker deployment
 
 ## Getting Started
 
