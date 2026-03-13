@@ -1,12 +1,12 @@
 services:
 
-  postgres:
+  postgresDB:
     environment:
       POSTGRES_DB: proddb
     volumes:
       - postgres_prod_data:/var/lib/postgresql/data
 
-  api:
+  nodeapi:
     environment:
       NODE_ENV: ${NODE_ENV}
       DATABASE_URL: ${DATABASE_URL}
