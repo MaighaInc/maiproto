@@ -1,0 +1,43 @@
+# Docker Compose configuration for PostgreSQL and API service 
+# This setup includes a PostgreSQL database and an API service that connects to it.
+# The PostgreSQL service is configured with environment variables for the database user, password, and name.
+# The API service is built from a Dockerfile and depends on the PostgreSQL service.
+# Environment variables for the API service are passed from the host machine, allowing for flexibility in configuration
+
+#version: "3.9"
+
+services:
+
+  postgresDB:
+    platform: linux/amd64
+    image: postgres:18
+    container_name: PostgresDB
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: testdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+  nodeapi:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: napiserver
+    container_name: napiserver         
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      NODE_SERVER_PORT: ${NODE_SERVER_PORT}
+      NODE_ENV: ${NODE_ENV}
+    ports:
+      - "5501:5501"
+
+    depends_on:
+      - postgresDB
+
+volumes:
+  postgres_data:

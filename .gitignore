@@ -41,6 +41,10 @@ build/Release
 node_modules/
 jspm_packages/
 
+# Database backups (generated artifacts, but keep folder structure)
+node/database/postgres/backups/*
+!node/database/postgres/backups/.gitkeep
+
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
 

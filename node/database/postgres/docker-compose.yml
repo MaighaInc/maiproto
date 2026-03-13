@@ -1,10 +1,6 @@
-# Docker Compose configuration for PostgreSQL and API service 
-# This setup includes a PostgreSQL database and an API service that connects to it.
-# The PostgreSQL service is configured with environment variables for the database user, password, and name.
-# The API service is built from a Dockerfile and depends on the PostgreSQL service.
-# Environment variables for the API service are passed from the host machine, allowing for flexibility in configuration
-
-#version: "3.9"
+# Docker Compose — single file with profiles
+# Usage: docker compose -f docker-compose.profiles.yml --profile <dev|test|demo|prod> up
+# Requires: copy env_templates\.env.<env> .env  (must include POSTGRES_DB)
 
 services:
 
@@ -14,30 +10,117 @@ services:
     container_name: PostgresDB
     restart: always
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: testdb
+      POSTGRES_USER: ${POSTGRES_DB_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_DB_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_DB_PORT}:${POSTGRES_DB_PORT}"
     volumes:
       - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
-  nodeapi:
+  nodeapi-dev:
+    profiles: [dev]
     platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile
     image: napiserver
-    container_name: napiserver         
+    container_name: nodeapi-dev
     environment:
       DATABASE_URL: ${DATABASE_URL}
       NODE_SERVER_PORT: ${NODE_SERVER_PORT}
       NODE_ENV: ${NODE_ENV}
     ports:
-      - "5501:5501"
-
+      - "${NODE_SERVER_PORT}:${NODE_SERVER_PORT}"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: sh -c "npx prisma migrate dev && npm run dev"
     depends_on:
-      - postgresDB
+      postgresDB:
+        condition: service_healthy
+
+  nodeapi-test:
+    profiles: [test]
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: napiserver
+    container_name: nodeapi-test
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      NODE_SERVER_PORT: ${NODE_SERVER_PORT}
+      NODE_ENV: ${NODE_ENV}
+    ports:
+      - "${NODE_SERVER_PORT}:${NODE_SERVER_PORT}"
+    command: sh -c "npx prisma migrate deploy && npm test"
+    depends_on:
+      postgresDB:
+        condition: service_healthy
+
+  nodeapi-demo:
+    profiles: [demo]
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: napiserver
+    container_name: nodeapi-demo
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      NODE_SERVER_PORT: ${NODE_SERVER_PORT}
+      NODE_ENV: ${NODE_ENV}
+    ports:
+      - "${NODE_SERVER_PORT}:${NODE_SERVER_PORT}"
+    command: sh -c "npx prisma migrate deploy && node src/server.js"
+    depends_on:
+      postgresDB:
+        condition: service_healthy
+
+  nodeapi-prod:
+    profiles: [prod]
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: napiserver
+    container_name: nodeapi-prod
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      NODE_SERVER_PORT: ${NODE_SERVER_PORT}
+      NODE_ENV: ${NODE_ENV}
+    ports:
+      - "${NODE_SERVER_PORT}:${NODE_SERVER_PORT}"
+    command: sh -c "npx prisma migrate deploy && node src/server.js"
+    restart: always
+    depends_on:
+      postgresDB:
+        condition: service_healthy
+
+  pgbackup:
+    profiles: [dev, test, demo, prod]
+    platform: linux/amd64
+    image: postgres:18
+    container_name: pgbackup
+    environment:
+      POSTGRES_DB_USER: ${POSTGRES_DB_USER}
+      POSTGRES_DB_PASSWORD: ${POSTGRES_DB_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_DB_HOST: postgresDB
+      POSTGRES_DB_PORT: ${POSTGRES_DB_PORT}
+      BACKUP_INTERVAL: "86400"
+    volumes:
+      - ./backups:/backups
+    command: sh -c "while true; do PGPASSWORD=$$POSTGRES_DB_PASSWORD pg_dump -U $$POSTGRES_DB_USER -h $$POSTGRES_DB_HOST -p $$POSTGRES_DB_PORT -d $$POSTGRES_DB -F c -b -v -f /backups/$${POSTGRES_DB}_backup_$$(date +%Y%m%d_%H%M%S).dump; sleep $$BACKUP_INTERVAL; done"
+    depends_on:
+      postgresDB:
+        condition: service_healthy
 
 volumes:
   postgres_data:

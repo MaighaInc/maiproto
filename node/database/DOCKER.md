@@ -1,6 +1,6 @@
 # Docker Deployment
 
-Run the User Management API using Docker Compose for a complete containerized environment.
+Uses `docker-compose.yml` with Docker Compose profiles.
 
 ## Prerequisites
 - Docker
@@ -10,70 +10,90 @@ Run the User Management API using Docker Compose for a complete containerized en
 
 | Service | Port | Address |
 |---------|------|---------|
-| Node.js API | 5501 | `http://localhost:5501` |
-| PostgreSQL | 5432 | `localhost:5432` |
+| Node.js API | `NODE_SERVER_PORT` (default 5501) | `http://localhost:5501` |
+| PostgreSQL | `POSTGRES_DB_PORT` (default 5432) | `localhost:5432` |
 
 - Only one environment runs at a time on a single machine
 - The API connects to PostgreSQL internally using the service name `postgresDB` (Docker internal network)
-- To switch environments: bring down current services, swap `.env`, then bring up the next environment
 
-## Testing the Dockerized API
+## How It Works
 
-### Using Postman
+`docker-compose.yml` defines three services:
 
-- **POST** `/api/users` - Create a new user
-- **PUT** `/api/users/:id` - Update an existing user
-- **DELETE** `/api/users/:id` - Delete a user
+1. **postgresDB**: Always starts, regardless of profile
+2. **nodeapi-dev|test|demo|prod**: Four services, each tagged with a profile; only the matching one starts
+3. **pgbackup**: Runs with all profiles (dev, test, demo, prod); creates a database backup every 24 hours to `./backups/`
 
-### Using Web Client
+`.env` must include all required variables — all `env_templates` files already include them:
 
-- **GET** `/api/users` - Retrieve all users
-- **GET** `/api/users/:id` - Retrieve a specific user
+| Variable | Description |
+|----------|-------------|
+| `NODE_ENV` | Environment name (dev/test/demo/prod) |
+| `POSTGRES_DB_USER` | Database user |
+| `POSTGRES_DB_PASSWORD` | Database password |
+| `POSTGRES_DB` | Database name |
+| `POSTGRES_DB_PORT` | Database port (5432) |
+| `POSTGRES_CONTAINER` | Container name for Docker exec mode (`PostgresDB`); empty = local mode |
+| `DATABASE_URL` | Full Prisma connection string |
+| `NODE_SERVER_PORT` | API server port (5501) |
 
-## Docker Compose Configuration
+> **Note**: Migrations run **automatically** on container startup. No separate migration step needed.
 
-The `docker-compose.yml` base file defines two services:
+> **Profile flag required**: Always include `--profile <env>` for `build`, `up`, and `down` — without it, Compose skips all profile-gated services.
 
-1. **postgresDB**: PostgreSQL 18 database service
-   - Port: 5432
-   - Volume: `postgres_data` (persistent data storage)
+## Backups
 
-2. **nodeapi**: Node.js application service
-   - Port: 5501
-   - Environment: `DATABASE_URL`, `NODE_SERVER_PORT`, `NODE_ENV` read from `.env`
-   - Depends on: `postgresDB` service
+The `pgbackup` service automatically creates compressed database dumps every 24 hours:
+- **Location**: `./backups/` (host-mounted volume)
+- **Naming**: `<POSTGRES_DB>_backup_YYYYMMDD_HHMMSS.dump`
+- **Format**: PostgreSQL custom format (restorable with `pg_restore`)
 
-> **Note**: Migrations run **automatically** on container startup for all environments. No separate migration step needed.
+For on-demand manual backups and restores, use the standalone scripts:
 
-### First Time Setup
+```bash
+# Backup
+./scripts/backup_db.sh env_templates/.env.dev ./backups
 
-The Docker image needs to be **built once** before running any environment. You can go directly to **any environment** after cloning — you don't have to start with dev.
+# Restore
+./scripts/restore_db.sh env_templates/.env.dev ./backups/devdb_backup_20260313_141530.dump
+```
 
-### Switching Environments
+Both scripts support **two modes** controlled by `POSTGRES_CONTAINER` in the env file:
 
-Only one environment runs at a time on a single machine. No image rebuild needed when switching.
+| Mode | `POSTGRES_CONTAINER` | How it connects |
+|------|----------------------|-----------------|
+| Docker exec | `PostgresDB` (default) | Runs `pg_dump`/`pg_restore` inside the container |
+| Local | _(empty)_ | Uses local `pg_dump`/`pg_restore` connecting to `localhost:POSTGRES_DB_PORT` |
 
-1. **Stop** current → `docker compose down`
+Example filenames:
+- `devdb_backup_20260313_141530.dump`
+- `proddb_backup_20260313_141530.dump`
+
+
+## Switching Environments
+
+1. **Stop** current → `docker compose --profile <env> down`
 2. **Swap** `.env` → `copy env_templates\.env.<env> .env`
-3. **Start** next → `docker compose -f docker-compose.yml -f docker-compose.<env>.yml up`
+3. **Start** next → `docker compose --profile <env> up`
 
 ---
 
-### Environments
+## Environments
 
 #### **dev**
 
 ```bash
 copy env_templates\.env.dev .env
-docker compose build --no-cache
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+docker compose --profile dev build --no-cache   # skip if image already built
+docker compose --profile dev up
 ```
 
 - Database: `devdb`
+- Hot-reload via `nodemon`, uses `prisma migrate dev`
 
 **Stop when done:**
 ```bash
-docker compose down
+docker compose --profile dev down
 ```
 
 ---
@@ -82,15 +102,15 @@ docker compose down
 
 ```bash
 copy env_templates\.env.test .env
-docker compose build --no-cache          # skip if image already built
-docker compose -f docker-compose.yml -f docker-compose.test.yml up --abort-on-container-exit
+docker compose --profile test build --no-cache   # skip if image already built
+docker compose --profile test up --abort-on-container-exit
 ```
 
 - Database: `testdb`
 
 **Stop when done:**
 ```bash
-docker compose down
+docker compose --profile test down
 ```
 
 ---
@@ -99,15 +119,15 @@ docker compose down
 
 ```bash
 copy env_templates\.env.demo .env
-docker compose build --no-cache          # skip if image already built
-docker compose -f docker-compose.yml -f docker-compose.demo.yml up
+docker compose --profile demo build --no-cache   # skip if image already built
+docker compose --profile demo up
 ```
 
 - Database: `demodb`
 
 **Stop when done:**
 ```bash
-docker compose down
+docker compose --profile demo down
 ```
 
 ---
@@ -116,15 +136,16 @@ docker compose down
 
 ```bash
 copy env_templates\.env.prod .env
-docker compose build --no-cache          # skip if image already built
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker compose --profile prod build --no-cache   # skip if image already built
+docker compose --profile prod up -d
 ```
 
 - Database: `proddb`
+- `restart: always` — container restarts automatically on failure
 
 **Stop when done:**
 ```bash
-docker compose down
+docker compose --profile prod down
 ```
 
 ---
@@ -133,8 +154,8 @@ docker compose down
 
 - **Migration issues**: Ensure services are running and database is initialized
 - **Connection refused**: Verify all containers are running using `docker compose ps`
-- **Port already in use (5432)**: Local PostgreSQL on port 5532 may interfere — stop it with `net stop postgresql-x64-18`
-- **Docker issues**: Run `docker compose down` then `docker compose build --no-cache` to reset
+- **Port already in use**: Local PostgreSQL may interfere — stop it with `net stop postgresql-x64-18`
+- **Docker issues**: Run `docker compose --profile <env> down` then rebuild with `--no-cache`
 - **Permission denied**: Ensure Docker daemon is running
 - **Image build failures**: Check logs with `docker compose logs`
 
