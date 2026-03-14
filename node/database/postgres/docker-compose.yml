@@ -197,6 +197,13 @@ services:
       - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
     ports:
       - "${PGBOUNCER_PORT}:${PGBOUNCER_PORT}"
+    environment:
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: postgresDB
+      DB_PORT: ${POSTGRES_DB_PORT}
+      DB_NAME: ${POSTGRES_DB}
+      DB_POOL_MODE: transaction
     depends_on:
       postgresDB:
         condition: service_healthy
