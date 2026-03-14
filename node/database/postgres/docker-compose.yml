@@ -34,12 +34,18 @@ services:
     container_name: nodeapi-dev
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      DIRECT_DATABASE_URL: ${DIRECT_DATABASE_URL}
       NODE_SERVER_PORT: ${NODE_SERVER_PORT}
       NODE_ENV: ${NODE_ENV}
+      POSTGRES_DB_USER: ${POSTGRES_DB_USER}
+      POSTGRES_DB_PASSWORD: ${POSTGRES_DB_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_TTL: ${REDIS_TTL}
       REDIS_ENABLED: ${REDIS_ENABLED}
+      PGBOUNCER_ENABLED: ${PGBOUNCER_ENABLED}
+      PGBOUNCER_PORT: ${PGBOUNCER_PORT}
     ports:
       - "${NODE_SERVER_PORT}:${NODE_SERVER_PORT}"
     volumes:
@@ -48,6 +54,8 @@ services:
     command: sh -c "npx prisma migrate dev && npm run dev"
     depends_on:
       postgresDB:
+        condition: service_healthy
+      pgbouncer:
         condition: service_healthy
 
   nodeapi-test:
@@ -60,17 +68,25 @@ services:
     container_name: nodeapi-test
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      DIRECT_DATABASE_URL: ${DIRECT_DATABASE_URL}
       NODE_SERVER_PORT: ${NODE_SERVER_PORT}
       NODE_ENV: ${NODE_ENV}
+      POSTGRES_DB_USER: ${POSTGRES_DB_USER}
+      POSTGRES_DB_PASSWORD: ${POSTGRES_DB_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_TTL: ${REDIS_TTL}
       REDIS_ENABLED: ${REDIS_ENABLED}
+      PGBOUNCER_ENABLED: ${PGBOUNCER_ENABLED}
+      PGBOUNCER_PORT: ${PGBOUNCER_PORT}
     ports:
       - "${NODE_SERVER_PORT}:${NODE_SERVER_PORT}"
     command: sh -c "npx prisma migrate deploy && npm test"
     depends_on:
       postgresDB:
+        condition: service_healthy
+      pgbouncer:
         condition: service_healthy
 
   nodeapi-demo:
@@ -83,17 +99,25 @@ services:
     container_name: nodeapi-demo
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      DIRECT_DATABASE_URL: ${DIRECT_DATABASE_URL}
       NODE_SERVER_PORT: ${NODE_SERVER_PORT}
       NODE_ENV: ${NODE_ENV}
+      POSTGRES_DB_USER: ${POSTGRES_DB_USER}
+      POSTGRES_DB_PASSWORD: ${POSTGRES_DB_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_TTL: ${REDIS_TTL}
       REDIS_ENABLED: ${REDIS_ENABLED}
+      PGBOUNCER_ENABLED: ${PGBOUNCER_ENABLED}
+      PGBOUNCER_PORT: ${PGBOUNCER_PORT}
     ports:
       - "${NODE_SERVER_PORT}:${NODE_SERVER_PORT}"
     command: sh -c "npx prisma migrate deploy && node src/server.js"
     depends_on:
       postgresDB:
+        condition: service_healthy
+      pgbouncer:
         condition: service_healthy
 
   nodeapi-prod:
@@ -106,18 +130,26 @@ services:
     container_name: nodeapi-prod
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      DIRECT_DATABASE_URL: ${DIRECT_DATABASE_URL}
       NODE_SERVER_PORT: ${NODE_SERVER_PORT}
       NODE_ENV: ${NODE_ENV}
+      POSTGRES_DB_USER: ${POSTGRES_DB_USER}
+      POSTGRES_DB_PASSWORD: ${POSTGRES_DB_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_TTL: ${REDIS_TTL}
       REDIS_ENABLED: ${REDIS_ENABLED}
+      PGBOUNCER_ENABLED: ${PGBOUNCER_ENABLED}
+      PGBOUNCER_PORT: ${PGBOUNCER_PORT}
     ports:
       - "${NODE_SERVER_PORT}:${NODE_SERVER_PORT}"
     command: sh -c "npx prisma migrate deploy && node src/server.js"
     restart: always
     depends_on:
       postgresDB:
+        condition: service_healthy
+      pgbouncer:
         condition: service_healthy
 
   pgbackup:
@@ -151,6 +183,25 @@ services:
       - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  pgbouncer:
+    profiles: [pgbouncer]
+    platform: linux/amd64
+    image: edoburu/pgbouncer:latest
+    container_name: pgbouncer
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    ports:
+      - "${PGBOUNCER_PORT}:${PGBOUNCER_PORT}"
+    depends_on:
+      postgresDB:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p ${PGBOUNCER_PORT} -U ${POSTGRES_DB_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
