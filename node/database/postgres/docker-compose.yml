@@ -1,6 +1,7 @@
 # Docker Compose — single file with profiles
-# Usage: docker compose -f docker-compose.profiles.yml --profile <dev|test|demo|prod> up
-# Requires: copy env_templates\.env.<env> .env  (must include POSTGRES_DB)
+# Usage (Redis enabled):  docker compose --profile <dev|test|demo|prod> --profile redis up
+# Usage (Redis disabled): docker compose --profile <dev|test|demo|prod> up
+# Requires: copy env_templates\.env.<env> .env
 
 services:
 
@@ -18,7 +19,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_DB_USER}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -35,6 +36,10 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       NODE_SERVER_PORT: ${NODE_SERVER_PORT}
       NODE_ENV: ${NODE_ENV}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_TTL: ${REDIS_TTL}
+      REDIS_ENABLED: ${REDIS_ENABLED}
     ports:
       - "${NODE_SERVER_PORT}:${NODE_SERVER_PORT}"
     volumes:
@@ -57,6 +62,10 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       NODE_SERVER_PORT: ${NODE_SERVER_PORT}
       NODE_ENV: ${NODE_ENV}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_TTL: ${REDIS_TTL}
+      REDIS_ENABLED: ${REDIS_ENABLED}
     ports:
       - "${NODE_SERVER_PORT}:${NODE_SERVER_PORT}"
     command: sh -c "npx prisma migrate deploy && npm test"
@@ -76,6 +85,10 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       NODE_SERVER_PORT: ${NODE_SERVER_PORT}
       NODE_ENV: ${NODE_ENV}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_TTL: ${REDIS_TTL}
+      REDIS_ENABLED: ${REDIS_ENABLED}
     ports:
       - "${NODE_SERVER_PORT}:${NODE_SERVER_PORT}"
     command: sh -c "npx prisma migrate deploy && node src/server.js"
@@ -95,6 +108,10 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       NODE_SERVER_PORT: ${NODE_SERVER_PORT}
       NODE_ENV: ${NODE_ENV}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_TTL: ${REDIS_TTL}
+      REDIS_ENABLED: ${REDIS_ENABLED}
     ports:
       - "${NODE_SERVER_PORT}:${NODE_SERVER_PORT}"
     command: sh -c "npx prisma migrate deploy && node src/server.js"
@@ -122,5 +139,22 @@ services:
       postgresDB:
         condition: service_healthy
 
+  redis:
+    profiles: [redis]
+    platform: linux/amd64
+    image: redis:7
+    container_name: app-redis
+    restart: always
+    ports:
+      - "${REDIS_PORT}:${REDIS_PORT}"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
 volumes:
   postgres_data:
+  redis_data:

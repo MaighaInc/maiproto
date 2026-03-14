@@ -12,17 +12,18 @@ Uses `docker-compose.yml` with Docker Compose profiles.
 |---------|------|---------|
 | Node.js API | `NODE_SERVER_PORT` (default 5501) | `http://localhost:5501` |
 | PostgreSQL | `POSTGRES_DB_PORT` (default 5432) | `localhost:5432` |
-
+| Redis | `REDIS_PORT` (default 6379) | `localhost:6379` |
 - Only one environment runs at a time on a single machine
-- The API connects to PostgreSQL internally using the service name `postgresDB` (Docker internal network)
+- The API connects to PostgreSQL internally using the service name `postgresDB` and to Redis using `app-redis` (Docker internal network)
 
 ## How It Works
 
-`docker-compose.yml` defines three services:
+`docker-compose.yml` defines four services:
 
 1. **postgresDB**: Always starts, regardless of profile
-2. **nodeapi-dev|test|demo|prod**: Four services, each tagged with a profile; only the matching one starts
-3. **pgbackup**: Runs with all profiles (dev, test, demo, prod); creates a database backup every 24 hours to `./backups/`
+2. **redis**: Starts only when `--profile redis` is passed (controlled by `REDIS_ENABLED`)
+3. **nodeapi-dev|test|demo|prod**: Four services, each tagged with a profile; only the matching one starts
+4. **pgbackup**: Runs with all profiles (dev, test, demo, prod); creates a database backup every 24 hours to `./backups/`
 
 `.env` must include all required variables — all `env_templates` files already include them:
 
@@ -36,10 +37,14 @@ Uses `docker-compose.yml` with Docker Compose profiles.
 | `POSTGRES_CONTAINER` | Container name for Docker exec mode (`PostgresDB`); empty = local mode |
 | `DATABASE_URL` | Full Prisma connection string |
 | `NODE_SERVER_PORT` | API server port (5501) |
+| `REDIS_HOST` | Redis service hostname (`app-redis` — Docker internal) |
+| `REDIS_PORT` | Redis port (6379) |
+| `REDIS_TTL` | Cache TTL in seconds (300) |
+| `REDIS_ENABLED` | Enable Redis cache (`true`/`false`) |
 
 > **Note**: Migrations run **automatically** on container startup. No separate migration step needed.
 
-> **Profile flag required**: Always include `--profile <env>` for `build`, `up`, and `down` — without it, Compose skips all profile-gated services.
+> **Profile flag required**: Always include `--profile <env>` for `build`, `up`, and `down`. Add `--profile redis` when `REDIS_ENABLED=true` to also start the Redis container.
 
 ## Backups
 
@@ -72,9 +77,11 @@ Example filenames:
 
 ## Switching Environments
 
-1. **Stop** current → `docker compose --profile <env> down`
+1. **Stop** current → `docker compose --profile <env> [--profile redis] down`
 2. **Swap** `.env` → `copy env_templates\.env.<env> .env`
-3. **Start** next → `docker compose --profile <env> up`
+3. **Start** next → `docker compose --profile <env> [--profile redis] up`
+
+> Include `--profile redis` only when `REDIS_ENABLED=true` in your `.env`.
 
 ---
 
@@ -84,8 +91,9 @@ Example filenames:
 
 ```bash
 copy env_templates\.env.dev .env
-docker compose --profile dev build --no-cache   # skip if image already built
-docker compose --profile dev up
+docker compose --profile dev build --no-cache           # skip if image already built
+docker compose --profile dev up                        # Redis disabled
+docker compose --profile dev --profile redis up        # Redis enabled
 ```
 
 - Database: `devdb`
@@ -94,6 +102,7 @@ docker compose --profile dev up
 **Stop when done:**
 ```bash
 docker compose --profile dev down
+docker compose --profile dev --profile redis down      # if Redis was started
 ```
 
 ---
@@ -102,8 +111,9 @@ docker compose --profile dev down
 
 ```bash
 copy env_templates\.env.test .env
-docker compose --profile test build --no-cache   # skip if image already built
-docker compose --profile test up --abort-on-container-exit
+docker compose --profile test build --no-cache                          # skip if image already built
+docker compose --profile test up --abort-on-container-exit             # Redis disabled
+docker compose --profile test --profile redis up --abort-on-container-exit  # Redis enabled
 ```
 
 - Database: `testdb`
@@ -111,6 +121,7 @@ docker compose --profile test up --abort-on-container-exit
 **Stop when done:**
 ```bash
 docker compose --profile test down
+docker compose --profile test --profile redis down     # if Redis was started
 ```
 
 ---
@@ -119,8 +130,9 @@ docker compose --profile test down
 
 ```bash
 copy env_templates\.env.demo .env
-docker compose --profile demo build --no-cache   # skip if image already built
-docker compose --profile demo up
+docker compose --profile demo build --no-cache          # skip if image already built
+docker compose --profile demo up                       # Redis disabled
+docker compose --profile demo --profile redis up       # Redis enabled
 ```
 
 - Database: `demodb`
@@ -128,6 +140,7 @@ docker compose --profile demo up
 **Stop when done:**
 ```bash
 docker compose --profile demo down
+docker compose --profile demo --profile redis down     # if Redis was started
 ```
 
 ---
@@ -136,8 +149,9 @@ docker compose --profile demo down
 
 ```bash
 copy env_templates\.env.prod .env
-docker compose --profile prod build --no-cache   # skip if image already built
-docker compose --profile prod up -d
+docker compose --profile prod build --no-cache          # skip if image already built
+docker compose --profile prod up -d                    # Redis disabled
+docker compose --profile prod --profile redis up -d    # Redis enabled
 ```
 
 - Database: `proddb`
@@ -146,6 +160,7 @@ docker compose --profile prod up -d
 **Stop when done:**
 ```bash
 docker compose --profile prod down
+docker compose --profile prod --profile redis down     # if Redis was started
 ```
 
 ---
