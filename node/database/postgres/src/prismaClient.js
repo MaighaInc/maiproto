@@ -8,6 +8,16 @@ if (process.env.PGBOUNCER_ENABLED === 'true') {
     `@pgbouncer:${process.env.PGBOUNCER_PORT}/${process.env.POSTGRES_DB}?pgbouncer=true`
 }
 
-const prisma = new PrismaClient()
+// Fallback to DATABASE_URL if PRIMARY/REPLICA URLs not explicitly set
+const primaryUrl = process.env.PRIMARY_DATABASE_URL || process.env.DATABASE_URL
+const replicaUrl = process.env.REPLICA_DATABASE_URL || primaryUrl
 
-module.exports = prisma
+const primary = new PrismaClient({
+  datasources: { db: { url: primaryUrl } }
+})
+
+const replica = new PrismaClient({
+  datasources: { db: { url: replicaUrl } }
+})
+
+module.exports = { primary_prisma: primary, replica_prisma: replica }
