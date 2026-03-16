@@ -1,0 +1,17 @@
+{
+  "name": "excel",
+  "version": "1.0.0",
+  "type":"module",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Suresh Potluri From Maigha Inc",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "exceljs": "^4.4.0"
+  }
+}
