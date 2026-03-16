@@ -18,6 +18,41 @@ services:
       - "${POSTGRES_DB_PORT}:${POSTGRES_DB_PORT}"
     volumes:
       - postgres_data:/var/lib/postgresql
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+      - ./initdb/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    command: >
+      postgres
+      -c wal_level=replica
+      -c max_wal_senders=10
+      -c hot_standby=on
+      -c hba_file=/etc/postgresql/pg_hba.conf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_DB_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgresRepDB:
+    profiles: [replica]
+    platform: linux/amd64
+    image: postgres:18
+    container_name: PostgresRepDB
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_DB_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_DB_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_DB_USER}
+      PGPASSWORD: ${POSTGRES_DB_PASSWORD}
+    ports:
+      - "${POSTGRES_REP_DB_PORT}:5432"
+    volumes:
+      - postgres_rep_data:/var/lib/postgresql/data
+      - ./scripts/replica-setup.sh:/replica-setup.sh:ro
+    entrypoint: ["/bin/bash", "/replica-setup.sh"]
+    depends_on:
+      postgresDB:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_DB_USER}"]
       interval: 5s
@@ -190,29 +225,79 @@ services:
   pgbouncer:
     profiles: [pgbouncer]
     platform: linux/amd64
-    image: edoburu/pgbouncer:latest
+    image: pgbouncer/pgbouncer:latest
     container_name: pgbouncer
+    entrypoint: ["/opt/pgbouncer/pgbouncer", "/etc/pgbouncer/pgbouncer.ini"]
     volumes:
       - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
       - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
     ports:
       - "${PGBOUNCER_PORT}:${PGBOUNCER_PORT}"
-    environment:
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_HOST: postgresDB
-      DB_PORT: ${POSTGRES_DB_PORT}
-      DB_NAME: ${POSTGRES_DB}
-      DB_POOL_MODE: transaction
     depends_on:
       postgresDB:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h localhost -p ${PGBOUNCER_PORT} -U ${POSTGRES_DB_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "nc -z localhost ${PGBOUNCER_PORT} || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 10
 
+  pgadmin:
+    platform: linux/amd64
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@local.dev
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    volumes:
+      - ./backups:/backups
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgresDB:
+        condition: service_healthy
+    profiles:
+      - pgadmin
+
+  pghero:
+    image: ankane/pghero
+    container_name: pghero
+    environment:
+      DATABASE_URL: ${DIRECT_DATABASE_URL}
+    ports:
+      - "8081:8080"
+    depends_on:
+      - postgresDB
+
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter
+    container_name: postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:postgres@postgresDB:5432/postgres?sslmode=disable"
+    ports:
+      - "9187:9187"
+    depends_on:
+      - postgresDB
+
 volumes:
   postgres_data:
+  postgres_rep_data:
   redis_data:
+  pgadmin_data:

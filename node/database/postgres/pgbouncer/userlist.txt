@@ -1,3 +1,2 @@
-"postgres" "md53175bce1d3201d16594cebf9d7eb3f9d"
-"postgres"  "SCRAM-SHA-256$4096:7d1gEofnhyi4plkXroy3Dw==$1lFQwiwq+CPuclXIPX7R0abOnKjjiYULxUfiRg5goZ4=:f0o/8rXQKEnp3S8KC+OwSPh5eDGJJGhB3ejYAyHQV7o="
+"postgres" "postgres"
 
