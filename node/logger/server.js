@@ -1,25 +1,41 @@
+import express from 'express';
 import logger from './utils/logger.js';
 
-console.log('Starting application...');
-const NPort = process.env.PORT || 5551;
+const app = express();
+const PORT = process.env.PORT || 5552;
 
-console.log(`Server is running on port ${NPort}...`);
-// Log examples
-logger.Debug('Debugging variable x=%d', 42);
-logger.Info('Server started successfully on port %d', NPort);
-logger.Warning('Memory usage is high: %d MB', 512);
-logger.Error(new Error('Database connection failed'));
-logger.Fatal('Fatal error: shutting down server!');
+// Middleware to parse JSON
+app.use(express.json());
 
-// Example async function logging
-async function fetchData() {
-  try {
-    throw new Error('Failed to fetch data');
-  } catch (err) {
-    logger.Error(err);
-  }
-}
+// Sample routes
+app.get('/', (req, res) => {
+  logger.Info('GET / called');
+  res.send('Hello, world!');
+});
 
+app.get('/debug', (req, res) => {
+  logger.Debug('Debug route accessed');
+  res.send('Debug route');
+});
 
-fetchData();
-fetchData();
+// Route that throws an error
+app.get('/error', (req, res) => {
+  throw new Error('Simulated synchronous error');
+});
+
+// Async route with error
+app.get('/async-error', async (req, res) => {
+  await Promise.reject(new Error('Simulated async error'));
+});
+
+// Express error-handling middleware
+app.use((err, req, res, next) => {
+  // Log the error
+  logger.Error(err);
+  res.status(500).json({ message: 'Internal Server Error' });
+});
+
+// Start server
+app.listen(PORT, () => {
+  logger.Info('Server started on port %d', PORT);
+});
