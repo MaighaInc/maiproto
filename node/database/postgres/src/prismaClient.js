@@ -10,7 +10,11 @@ if (process.env.PGBOUNCER_ENABLED === 'true') {
 
 // Fallback to DATABASE_URL if PRIMARY/REPLICA URLs not explicitly set
 const primaryUrl = process.env.PRIMARY_DATABASE_URL || process.env.DATABASE_URL
-const replicaUrl = process.env.REPLICA_DATABASE_URL || primaryUrl
+
+// Use replica URL only if REPLICA_ENABLED is true, otherwise use primary
+const replicaUrl = process.env.REPLICA_ENABLED === 'true' 
+  ? process.env.REPLICA_DATABASE_URL 
+  : primaryUrl
 
 const primary = new PrismaClient({
   datasources: { db: { url: primaryUrl } }
