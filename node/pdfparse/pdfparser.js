@@ -4,7 +4,7 @@ import { PDFParse } from 'pdf-parse';
 // Load your PDF file
 const pdfBuffer = fs.readFileSync('./ARCHITECTURE-api-flow.pdf');
 
-async function parsePDF1()) {
+async function parsePDF1() {
     const parser = new PDFParse({ data: pdfBuffer });
 
     try {
