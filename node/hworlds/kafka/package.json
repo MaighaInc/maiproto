@@ -1,0 +1,16 @@
+{
+  "name": "kafka-helloworld",
+  "version": "1.0.0",
+  "description": "Simple Kafka Hello World using KafkaJS",
+  "main": "producer.js",
+  "scripts": {
+    "producer": "node producer.js",
+    "consumer": "node consumer.js"
+  },
+  "keywords": ["kafka", "kafkajs", "helloworld"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "kafkajs": "^2.2.4"
+  }
+}
