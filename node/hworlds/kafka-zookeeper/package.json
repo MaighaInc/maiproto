@@ -1,0 +1,14 @@
+{
+  "name": "kafka-zookeeper-helloworld",
+  "version": "1.0.0",
+  "description": "Kafka + Zookeeper examples using KafkaJS",
+  "scripts": {
+    "producer": "node producer.js",
+    "consumer": "node consumer.js"
+  },
+  "keywords": ["kafka", "zookeeper", "kafkajs"],
+  "license": "ISC",
+  "dependencies": {
+    "kafkajs": "^2.2.4"
+  }
+}

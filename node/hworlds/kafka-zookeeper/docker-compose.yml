@@ -1,0 +1,42 @@
+version: '3.8'
+
+# Kafka with Zookeeper (classic mode — pre-KRaft)
+#
+# Architecture:
+#   Zookeeper — stores cluster metadata, leader election, topic configs
+#   Kafka     — the broker; connects to Zookeeper on startup
+#
+# Port 9093 is used so this stack can run alongside the KRaft stack (port 9092).
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181   # Kafka connects here
+      ZOOKEEPER_TICK_TIME: 2000     # heartbeat interval in ms
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka-zk
+    depends_on:
+      - zookeeper
+    ports:
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181             # point to the ZK container
+      KAFKA_LISTENERS: PLAINTEXT://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    volumes:
+      - kafka_zk_data:/var/lib/kafka/data
+
+volumes:
+  kafka_zk_data:
