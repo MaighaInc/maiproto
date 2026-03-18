@@ -1,0 +1,23 @@
+{
+  "title": "Node App Metrics",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Request Rate",
+      "targets": [
+        {
+          "expr": "rate(http_request_duration_seconds_count[1m])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Request Latency (p95)",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[1m]))"
+        }
+      ]
+    }
+  ]
+}
