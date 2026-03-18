@@ -1,0 +1,21 @@
+{
+  "name": "bullmq",
+  "version": "1.0.0",
+  "description": "![alt text](image.png)",
+  "main": "index.js",
+  "scripts": {
+    "start:work": "node Worker/workWorker.js",
+    "start:pubsub1": "node Worker/pubsubWorker1.js",
+    "start:pubsub2": "node Worker/pubsubWorker2.js",
+    "start:routing": "node worker/routingWorker.js",
+    "start:delayed": "node worker/delayedRetryWorker.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bullmq": "^5.71.0",
+    "ioredis": "^5.10.0"
+  }
+}
