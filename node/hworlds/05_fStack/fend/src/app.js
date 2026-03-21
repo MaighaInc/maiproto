@@ -20,6 +20,7 @@ function App() {
 
   const deleteMessage = async (id) => {
     await axios.delete(`http://localhost:4000/messages/${id}`);
+    await new Promise(resolve => setTimeout(resolve, 600));
     fetchMessages();
   };
 
@@ -32,6 +33,7 @@ function App() {
     await axios.put(`http://localhost:4000/messages/${editId}`, { content: editContent });
     setEditId(null);
     setEditContent("");
+    await new Promise(resolve => setTimeout(resolve, 600));
     fetchMessages();
   };
 
