@@ -1,5 +1,6 @@
 const { kafka, TOPIC } = require('../kafka');
 const { insertMessage, updateMessage, deleteMessage } = require('../db');
+const eventBus = require('../eventBus');
 
 async function startDbConsumer() {
   const consumer = kafka.consumer({ groupId: 'db-group' });
@@ -18,6 +19,9 @@ async function startDbConsumer() {
       } else if (event.type === 'message.deleted') {
         await deleteMessage(event.id);
       }
+
+      // Notify all SSE clients that DB has been updated
+      eventBus.emit('db-updated', { type: event.type });
     },
   });
 

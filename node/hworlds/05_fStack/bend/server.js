@@ -4,6 +4,7 @@ const { createTable, getMessages } = require('./db');
 const { producer, initKafka, TOPIC } = require('./kafka');
 const { startConsumers } = require('./consumers');
 const { client, requestCounter } = require('./metrics');
+const eventBus = require('./eventBus');
 
 const app = express();
 app.use(cors());
@@ -13,6 +14,27 @@ async function bootstrap() {
   await createTable();
   await initKafka();
   await startConsumers();
+
+  // SSE endpoint — UI subscribes here for real-time DB update notifications
+  app.get('/events', (req, res) => {
+    res.set({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+    res.flushHeaders();
+
+    const onUpdate = (payload) => {
+      res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    };
+
+    eventBus.on('db-updated', onUpdate);
+
+    // Clean up listener when client disconnects
+    req.on('close', () => {
+      eventBus.off('db-updated', onUpdate);
+    });
+  });
 
   // CRUD Endpoints
   app.post('/messages', async (req, res) => {

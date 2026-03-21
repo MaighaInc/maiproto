@@ -12,16 +12,30 @@ function App() {
     setMessages(res.data);
   };
 
+  // SSE — listens for DB write completions and refreshes the list
+  useEffect(() => {
+    fetchMessages();
+
+    const es = new EventSource("http://localhost:4000/events");
+    es.onmessage = () => {
+      fetchMessages();
+    };
+    es.onerror = (err) => {
+      console.error("SSE connection error:", err);
+    };
+
+    return () => es.close();
+  }, []);
+
   const sendMessage = async () => {
     await axios.post("http://localhost:4000/messages", { content: msg });
     setMsg("");
-    fetchMessages();
+    // no manual refresh — SSE will trigger fetchMessages when consumer finishes
   };
 
   const deleteMessage = async (id) => {
     await axios.delete(`http://localhost:4000/messages/${id}`);
-    await new Promise(resolve => setTimeout(resolve, 600));
-    fetchMessages();
+    // no manual refresh — SSE will trigger fetchMessages when consumer finishes
   };
 
   const startEdit = (m) => {
@@ -33,18 +47,13 @@ function App() {
     await axios.put(`http://localhost:4000/messages/${editId}`, { content: editContent });
     setEditId(null);
     setEditContent("");
-    await new Promise(resolve => setTimeout(resolve, 600));
-    fetchMessages();
+    // no manual refresh — SSE will trigger fetchMessages when consumer finishes
   };
 
   const cancelEdit = () => {
     setEditId(null);
     setEditContent("");
   };
-
-  useEffect(() => {
-    fetchMessages();
-  }, []);
 
   return (
     <div>
