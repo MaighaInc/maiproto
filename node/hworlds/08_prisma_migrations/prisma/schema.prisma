@@ -1,0 +1,256 @@
+// Prisma schema for Upsilon TaxPro API
+// Currently defines only the datasource and generator; models will be added in future steps.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CellType {
+  STATIC
+  FORMULA
+  CONSTANT
+}
+
+enum WorksheetType {
+  REGULAR
+}
+
+enum UserRole {
+  SYSTEM_ADMIN
+  FIRM_MANAGER
+  CLIENT_USER
+}
+
+model Worksheet {
+  id          String            @id @default(cuid())
+  name        String
+  type        WorksheetType     @default(REGULAR)
+  firmId      String? // Optional for backward compatibility
+  firm        CPAFirm?          @relation(fields: [firmId], references: [id], onDelete: SetNull)
+  // File/Client context (for client-specific worksheets)
+  clientId    String? // Client this worksheet belongs to (if part of a tax file)
+  fileId      String? // Tax file this worksheet belongs to
+  file        TaxFile?          @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  // Template/Instance fields
+  isTemplate  Boolean           @default(false) // True if this is a template
+  templateId  String? // If this is an instance, links to the template worksheet
+  template    Worksheet?       @relation("WorksheetTemplate", fields: [templateId], references: [id], onDelete: SetNull)
+  instances   Worksheet[]      @relation("WorksheetTemplate") // All instances created from this template
+  // Audit fields
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  createdById String?
+  createdBy   User?             @relation("WorksheetCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById String?
+  updatedBy   User?             @relation("WorksheetUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  deletedAt   DateTime?
+  deletedBy   String?
+  // Active = has at least one cell with non-zero numeric value (for sidebar filter). New worksheets start inactive.
+  hasNonZeroValue Boolean @default(false)
+  // Metadata for extensibility
+  metadata    Json?
+  // Relations
+  columns     WorksheetColumn[]
+  rows        WorksheetRow[]
+  cells       WorksheetCell[]
+
+  @@index([firmId])
+  @@index([clientId])
+  @@index([fileId])
+  @@index([deletedAt])
+  @@index([createdById])
+  @@index([templateId])
+  @@index([isTemplate])
+  // CRITICAL: Prevent duplicate worksheets per firm
+  // Note: We use a partial unique index in migration for soft-delete handling
+  // This ensures: (name, firmId) is unique when deletedAt IS NULL
+  // Migration: add_worksheet_unique_constraint.sql
+  // This prevents duplicate global Form 1040 (firmId=null) and duplicate firm instances
+}
+
+model WorksheetColumn {
+  id          String          @id @default(cuid())
+  worksheetId String
+  key         String
+  title       String
+  order       Int
+  editable    Boolean         @default(true)
+  metadata    Json? // Extensible field for future properties
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  worksheet   Worksheet       @relation(fields: [worksheetId], references: [id], onDelete: Cascade)
+  cells       WorksheetCell[] @relation("ColumnCells")
+
+  @@unique([worksheetId, key])
+  @@unique([worksheetId, order])
+}
+
+model WorksheetRow {
+  id          String          @id @default(cuid())
+  worksheetId String
+  order       Int
+  editable    Boolean         @default(true)
+  isHeader    Boolean         @default(false)
+  dataType    String? // 'number', 'select', 'text', etc.
+  metadata    Json? // Extensible field for future properties
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  worksheet   Worksheet       @relation(fields: [worksheetId], references: [id], onDelete: Cascade)
+  cells       WorksheetCell[] @relation("RowCells")
+
+  @@unique([worksheetId, order])
+}
+
+model WorksheetCell {
+  id           String          @id @default(cuid())
+  worksheetId  String
+  rowId        String
+  columnId     String
+  value        String
+  type         CellType        @default(STATIC)
+  editable     Boolean         @default(true)
+  dataType     String? // 'number', 'select', 'text', etc.
+  isHeader     Boolean         @default(false)
+  defaultValue String? // Default value for this cell
+  metadata     Json? // Extensible field for future properties
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  worksheet    Worksheet       @relation(fields: [worksheetId], references: [id], onDelete: Cascade)
+  row          WorksheetRow    @relation("RowCells", fields: [rowId], references: [id], onDelete: Cascade)
+  column       WorksheetColumn @relation("ColumnCells", fields: [columnId], references: [id], onDelete: Cascade)
+
+  @@unique([rowId, columnId])
+  @@index([worksheetId])
+}
+
+// ==============================|| USER & FIRM MODELS ||============================== //
+
+model User {
+  id                String      @id @default(cuid())
+  firebaseUid       String      @unique
+  email             String
+  name              String?
+  role              UserRole    @default(FIRM_MANAGER)
+  // Audit fields
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  createdBy         String?
+  updatedBy         String?
+  deletedAt         DateTime?
+  deletedBy         String?
+  // Metadata for extensibility
+  metadata          Json?
+  // Relations
+  firmMemberships   UserFirm[]
+  createdWorksheets Worksheet[] @relation("WorksheetCreator")
+  updatedWorksheets Worksheet[] @relation("WorksheetUpdater")
+
+  @@index([firebaseUid])
+  @@index([email])
+  @@index([role])
+  @@index([deletedAt])
+}
+
+model CPAFirm {
+  id         String      @id @default(cuid())
+  name       String
+  email      String?
+  phone      String?
+  address    String?
+  // Audit fields
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  createdBy  String?
+  updatedBy  String?
+  deletedAt  DateTime?
+  deletedBy  String?
+  // Metadata for extensibility
+  metadata   Json?
+  // Relations
+  users      UserFirm[]
+  clients    Client[]
+  worksheets Worksheet[]
+
+  @@index([deletedAt])
+  @@index([name])
+}
+
+// Junction table for User-Firm relationship (many-to-many)
+// Allows users to belong to multiple firms with different roles per firm
+model UserFirm {
+  id        String    @id @default(cuid())
+  userId    String
+  firmId    String
+  role      UserRole  @default(FIRM_MANAGER) // Role within this specific firm
+  // Audit fields
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+  deletedBy String?
+  // Relations
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  firm      CPAFirm   @relation(fields: [firmId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, firmId]) // Unique per user-firm pair (soft deletes handled by deletedAt filter)
+  @@index([userId])
+  @@index([firmId])
+  @@index([deletedAt])
+}
+
+model Client {
+  id        String    @id @default(cuid())
+  firmId    String
+  firstName String?   // First name of the client
+  lastName  String?   // Last name of the client
+  name      String    // Full name (computed or stored)
+  email     String?
+  phone     String?
+  address   String?
+  // Audit fields
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+  deletedBy String?
+  // Metadata for extensibility
+  metadata  Json?
+  // Relations
+  firm      CPAFirm   @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  files     TaxFile[]
+
+  @@index([firmId])
+  @@index([email])
+  @@index([deletedAt])
+}
+
+model TaxFile {
+  id        String    @id @default(cuid())
+  clientId  String
+  client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  fileName  String    // Name of the tax file
+  scenario  String?   // Tax scenario (e.g., "default-2025", "amended-2025")
+  year      Int?      // Tax year (e.g., 2024, 2025, 2026)
+  // Audit fields
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+  deletedBy String?
+  // Metadata for extensibility
+  metadata  Json?
+  // Relations
+  worksheets Worksheet[]
+
+  @@index([clientId])
+  @@index([deletedAt])
+  @@index([year])
+}
