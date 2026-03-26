@@ -144,3 +144,4 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 node/excel/output/employees.xlsx
 /node/pdfparse/output
+node/hworlds/09_Prisma_client/SQLite/prisma/dev.db
