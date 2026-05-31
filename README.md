@@ -16,11 +16,12 @@ AI-powered receipt management platform. Upload receipts, extract data via OCR, c
    - [5. Run Database Migrations](#5-run-database-migrations)
    - [6. Seed the Database](#6-seed-the-database)
    - [7. Start the Dev Servers](#7-start-the-dev-servers)
-4. [Environment Variables Reference](#environment-variables-reference)
-5. [Project Structure](#project-structure)
-6. [Useful Commands](#useful-commands)
-7. [Production Build](#production-build)
-8. [Troubleshooting](#troubleshooting)
+4. [Generating Secrets](#generating-secrets)
+5. [Environment Variables Reference](#environment-variables-reference)
+6. [Project Structure](#project-structure)
+7. [Useful Commands](#useful-commands)
+8. [Production Build](#production-build)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -102,9 +103,9 @@ cp .env.example .env.development
 
 | Variable | What it is | How to generate |
 |---|---|---|
-| `JWT_ACCESS_SECRET` | Signs access tokens — min 64 chars | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
-| `JWT_REFRESH_SECRET` | Signs refresh tokens — must differ from access secret | same command |
-| `ENCRYPTION_KEY` | 32-byte AES key — must be exactly 64 hex chars | same command |
+| `JWT_ACCESS_SECRET` | Signs access tokens — min 64 chars | See [Generating Secrets](#generating-secrets) |
+| `JWT_REFRESH_SECRET` | Signs refresh tokens — must differ from access secret | See [Generating Secrets](#generating-secrets) |
+| `ENCRYPTION_KEY` | 32-byte AES key — must be exactly 64 hex chars | See [Generating Secrets](#generating-secrets) |
 
 Everything else (DB, Redis, SMTP, OCR, AI) has safe dev defaults in `.env.development`. You only need to fill in real API keys when you want OCR or AI features to work.
 
@@ -245,6 +246,63 @@ Once all three are up:
 - **Prisma Studio (optional):** `cd packages/database && dotenv -e ../../.env.development -- npx prisma studio`
 
 Sign in with the demo credentials from step 6.
+
+---
+
+## Generating Secrets
+
+Run these once per developer machine (or once per environment for production). Each value must be unique — **never reuse secrets across environments or share your personal dev values**.
+
+### JWT Access Secret & JWT Refresh Secret
+
+Two independent secrets. Each must be at least 64 characters. Run the command twice and use a different output for each:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Example output (generate your own — do not copy this):
+```
+5c53a8423a1dc81bdcd6edcf38fb8448c0554f92450edda8903eb6a2ad07ad1c
+```
+
+Paste the **first** output as `JWT_ACCESS_SECRET` and the **second** (different) output as `JWT_REFRESH_SECRET`.
+
+### Encryption Key
+
+Must be exactly 64 hex characters (32 bytes). Same command:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Paste the output as `ENCRYPTION_KEY`. If it's not exactly 64 hex chars the API will refuse to start.
+
+### NEXTAUTH_SECRET
+
+For `apps/web/.env.local`. Can be the same value as `JWT_REFRESH_SECRET`, or generate a fresh one:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+### All at once (copy-paste friendly)
+
+Run this once to print all four values in order — `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `ENCRYPTION_KEY`, `NEXTAUTH_SECRET`:
+
+```bash
+node -e "
+const c = require('crypto');
+console.log('JWT_ACCESS_SECRET=' + c.randomBytes(32).toString('hex'));
+console.log('JWT_REFRESH_SECRET=' + c.randomBytes(32).toString('hex'));
+console.log('ENCRYPTION_KEY='    + c.randomBytes(32).toString('hex'));
+console.log('NEXTAUTH_SECRET='   + c.randomBytes(32).toString('hex'));
+"
+```
+
+Copy the output directly into your `.env.development` and `apps/web/.env.local`.
+
+> **Security reminder:** never commit these values to git. Never paste them into Slack channels or email. Share via an encrypted channel (1Password, Bitwarden Send, etc.).
 
 ---
 
