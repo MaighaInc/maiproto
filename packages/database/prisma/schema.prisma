@@ -1,0 +1,1361 @@
+// ============================================================
+// ReceiptFlow AI — Prisma Schema
+// Production-grade multi-tenant SaaS schema
+// ============================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch", "fullTextIndex", "multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["public", "audit"]
+}
+
+// ────────────────────────────────────────────────────────────
+// ENUMS
+// ────────────────────────────────────────────────────────────
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+  TRIAL
+
+  @@schema("public")
+}
+
+enum SubscriptionPlan {
+  STARTER
+  GROWTH
+  PROFESSIONAL
+  FIRM
+
+  @@schema("public")
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  PAUSED
+  INCOMPLETE
+
+  @@schema("public")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  PENDING_VERIFICATION
+  SUSPENDED
+  DELETED
+
+  @@schema("public")
+}
+
+enum ReceiptStatus {
+  DRAFT
+  PROCESSING
+  PROCESSED
+  MATCHED
+  APPROVED
+  REJECTED
+  ARCHIVED
+
+  @@schema("public")
+}
+
+enum ApprovalStatus {
+  PENDING
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  CANCELLED
+
+  @@schema("public")
+}
+
+enum WorkflowStepType {
+  APPROVAL
+  NOTIFICATION
+  AUTO_APPROVE
+  CONDITIONAL
+
+  @@schema("public")
+}
+
+enum JournalEntryStatus {
+  DRAFT
+  POSTED
+  VOIDED
+
+  @@schema("public")
+}
+
+enum AccountingBasis {
+  CASH
+  ACCRUAL
+
+  @@schema("public")
+}
+
+enum GLAccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+
+  @@schema("public")
+}
+
+enum BankTransactionType {
+  DEBIT
+  CREDIT
+
+  @@schema("public")
+}
+
+enum MatchStatus {
+  UNMATCHED
+  PENDING
+  MATCHED
+  REVIEWED
+  DISPUTED
+
+  @@schema("public")
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  RESTORE
+  LOGIN
+  LOGOUT
+  EXPORT
+  APPROVE
+  REJECT
+  UPLOAD
+
+  @@schema("audit")
+}
+
+enum OCRProvider {
+  TEXTRACT
+  DOCUMENT_AI
+  FORM_RECOGNIZER
+
+  @@schema("public")
+}
+
+enum AIProvider {
+  OPENAI
+  CLAUDE
+  GEMINI
+
+  @@schema("public")
+}
+
+enum StorageProvider {
+  LOCAL
+  S3
+  R2
+
+  @@schema("public")
+}
+
+enum NotificationChannel {
+  EMAIL
+  SLACK
+  TEAMS
+  IN_APP
+
+  @@schema("public")
+}
+
+enum WebhookStatus {
+  ACTIVE
+  INACTIVE
+  FAILED
+
+  @@schema("public")
+}
+
+enum PaymentMethod {
+  CREDIT_CARD
+  DEBIT_CARD
+  CASH
+  CHECK
+  ACH
+  WIRE
+  CRYPTO
+  OTHER
+
+  @@schema("public")
+}
+
+// ────────────────────────────────────────────────────────────
+// MULTI-TENANCY
+// ────────────────────────────────────────────────────────────
+
+model Tenant {
+  id          String       @id @default(cuid())
+  slug        String       @unique
+  name        String
+  domain      String?      @unique
+  logoUrl     String?
+  status      TenantStatus @default(ACTIVE)
+  settings    Json         @default("{}")
+  metadata    Json         @default("{}")
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
+
+  organizations  Organization[]
+  subscriptions  Subscription[]
+  apiKeys        ApiKey[]
+  webhooks       Webhook[]
+
+  @@index([slug])
+  @@index([domain])
+  @@index([deletedAt])
+  @@map("tenants")
+  @@schema("public")
+}
+
+model Organization {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  slug        String
+  taxId       String?
+  email       String?
+  phone       String?
+  website     String?
+  logoUrl     String?
+  address     Json?
+  settings    Json     @default("{}")
+  fiscalYear  Int      @default(1) // month fiscal year starts (1=Jan)
+  currency    String   @default("USD")
+  timezone    String   @default("UTC")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+  createdBy   String
+  updatedBy   String
+
+  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users         UserOrganization[]
+  teams         Team[]
+  departments   Department[]
+  receipts      Receipt[]
+  vendors       Vendor[]
+  bankAccounts  BankAccount[]
+  chartOfAccounts ChartOfAccount[]
+  journalEntries  JournalEntry[]
+  workflows       Workflow[]
+  expenseCategories ExpenseCategory[]
+  apiKeys         ApiKey[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@map("organizations")
+  @@schema("public")
+}
+
+// ────────────────────────────────────────────────────────────
+// USERS & RBAC
+// ────────────────────────────────────────────────────────────
+
+model User {
+  id                    String     @id @default(cuid())
+  tenantId              String
+  email                 String
+  emailVerified         Boolean    @default(false)
+  emailVerifiedAt       DateTime?
+  passwordHash          String
+  firstName             String
+  lastName              String
+  avatarUrl             String?
+  phone                 String?
+  phoneVerified         Boolean    @default(false)
+  status                UserStatus @default(PENDING_VERIFICATION)
+  mfaEnabled            Boolean    @default(false)
+  mfaSecret             String?
+  mfaBackupCodes        String[]
+  lastLoginAt           DateTime?
+  lastLoginIp           String?
+  loginAttempts         Int        @default(0)
+  lockedUntil           DateTime?
+  passwordChangedAt     DateTime?
+  settings              Json       @default("{}")
+  metadata              Json       @default("{}")
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  deletedAt             DateTime?
+
+  organizations         UserOrganization[]
+  refreshTokens         RefreshToken[]
+  emailVerifications    EmailVerification[]
+  passwordResets        PasswordReset[]
+  auditLogs             AuditLog[]          @relation("AuditUser")
+  approvals             Approval[]
+  approvalComments      ApprovalComment[]
+  receiptComments       ReceiptComment[]
+  notifications         Notification[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([email])
+  @@index([deletedAt])
+  @@map("users")
+  @@schema("public")
+}
+
+model UserOrganization {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  tenantId       String
+  isDefault      Boolean  @default(false)
+  joinedAt       DateTime @default(now())
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  roles        UserRole[]
+  teams        TeamMember[]
+  departments  DepartmentMember[]
+
+  @@unique([userId, organizationId])
+  @@index([userId])
+  @@index([organizationId])
+  @@index([tenantId])
+  @@map("user_organizations")
+  @@schema("public")
+}
+
+model Role {
+  id             String   @id @default(cuid())
+  tenantId       String
+  organizationId String?
+  name           String
+  description    String?
+  isSystem       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  permissions    RolePermission[]
+  userRoles      UserRole[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("roles")
+  @@schema("public")
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  resource    String   // receipts, vendors, reports, etc.
+  action      String   // create, read, update, delete, approve, export
+  description String?
+
+  roles       RolePermission[]
+
+  @@unique([resource, action])
+  @@map("permissions")
+  @@schema("public")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  createdAt    DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+  @@schema("public")
+}
+
+model UserRole {
+  userOrgId String
+  roleId    String
+  grantedAt DateTime @default(now())
+  grantedBy String
+
+  userOrg UserOrganization @relation(fields: [userOrgId], references: [id], onDelete: Cascade)
+  role    Role             @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userOrgId, roleId])
+  @@map("user_roles")
+  @@schema("public")
+}
+
+model Team {
+  id             String   @id @default(cuid())
+  tenantId       String
+  organizationId String
+  name           String
+  description    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdBy      String
+  updatedBy      String
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members      TeamMember[]
+
+  @@unique([organizationId, name])
+  @@index([tenantId])
+  @@map("teams")
+  @@schema("public")
+}
+
+model TeamMember {
+  teamId    String
+  userOrgId String
+  role      String   @default("member") // member | lead
+  joinedAt  DateTime @default(now())
+
+  team    Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userOrg UserOrganization @relation(fields: [userOrgId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, userOrgId])
+  @@map("team_members")
+  @@schema("public")
+}
+
+model Department {
+  id             String   @id @default(cuid())
+  tenantId       String
+  organizationId String
+  name           String
+  code           String?
+  parentId       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdBy      String
+  updatedBy      String
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parent       Department?        @relation("DepartmentHierarchy", fields: [parentId], references: [id])
+  children     Department[]       @relation("DepartmentHierarchy")
+  members      DepartmentMember[]
+
+  @@unique([organizationId, code])
+  @@index([tenantId])
+  @@map("departments")
+  @@schema("public")
+}
+
+model DepartmentMember {
+  departmentId String
+  userOrgId    String
+  joinedAt     DateTime @default(now())
+
+  department Department       @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  userOrg    UserOrganization @relation(fields: [userOrgId], references: [id], onDelete: Cascade)
+
+  @@id([departmentId, userOrgId])
+  @@map("department_members")
+  @@schema("public")
+}
+
+// ────────────────────────────────────────────────────────────
+// AUTH TOKENS
+// ────────────────────────────────────────────────────────────
+
+model RefreshToken {
+  id          String    @id @default(cuid())
+  userId      String
+  tenantId    String
+  tokenHash   String    @unique
+  family      String    // rotation family for reuse detection
+  expiresAt   DateTime
+  usedAt      DateTime?
+  revokedAt   DateTime?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([family])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+  @@schema("public")
+}
+
+model EmailVerification {
+  id        String    @id @default(cuid())
+  userId    String
+  tenantId  String
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@map("email_verifications")
+  @@schema("public")
+}
+
+model PasswordReset {
+  id        String    @id @default(cuid())
+  userId    String
+  tenantId  String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  ipAddress String?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tokenHash])
+  @@index([userId])
+  @@map("password_resets")
+  @@schema("public")
+}
+
+// ────────────────────────────────────────────────────────────
+// SUBSCRIPTIONS & BILLING
+// ────────────────────────────────────────────────────────────
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  tenantId             String
+  plan                 SubscriptionPlan
+  status               SubscriptionStatus @default(TRIALING)
+  stripeCustomerId     String?            @unique
+  stripeSubscriptionId String?            @unique
+  stripePriceId        String?
+  trialEndsAt          DateTime?
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean            @default(false)
+  cancelledAt          DateTime?
+
+  // Limits
+  receiptLimit         Int                @default(100)
+  storageGbLimit       Int                @default(5)
+  userLimit            Int                @default(3)
+  organizationLimit    Int                @default(1)
+
+  // Usage (cached, refreshed periodically)
+  receiptCount         Int                @default(0)
+  storageGbUsed        Float              @default(0)
+  userCount            Int                @default(0)
+
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoices   StripeInvoice[]
+
+  @@index([tenantId])
+  @@index([stripeCustomerId])
+  @@map("subscriptions")
+  @@schema("public")
+}
+
+model StripeInvoice {
+  id             String   @id @default(cuid())
+  subscriptionId String
+  tenantId       String
+  stripeId       String   @unique
+  amountDue      Int      // cents
+  amountPaid     Int
+  currency       String
+  status         String
+  periodStart    DateTime
+  periodEnd      DateTime
+  pdfUrl         String?
+  createdAt      DateTime @default(now())
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+
+  @@index([subscriptionId])
+  @@index([tenantId])
+  @@map("stripe_invoices")
+  @@schema("public")
+}
+
+// ────────────────────────────────────────────────────────────
+// API KEYS & WEBHOOKS
+// ────────────────────────────────────────────────────────────
+
+model ApiKey {
+  id             String    @id @default(cuid())
+  tenantId       String
+  organizationId String?
+  name           String
+  keyHash        String    @unique
+  keyPrefix      String    // first 8 chars of key for display
+  scopes         String[]
+  lastUsedAt     DateTime?
+  expiresAt      DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  createdBy      String
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@index([tenantId])
+  @@index([keyHash])
+  @@map("api_keys")
+  @@schema("public")
+}
+
+model Webhook {
+  id          String        @id @default(cuid())
+  tenantId    String
+  url         String
+  secret      String        // HMAC signing secret
+  events      String[]
+  status      WebhookStatus @default(ACTIVE)
+  retryCount  Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  createdBy   String
+
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deliveries  WebhookDelivery[]
+
+  @@index([tenantId])
+  @@map("webhooks")
+  @@schema("public")
+}
+
+model WebhookDelivery {
+  id          String   @id @default(cuid())
+  webhookId   String
+  event       String
+  payload     Json
+  statusCode  Int?
+  response    String?
+  attempts    Int      @default(1)
+  succeededAt DateTime?
+  nextRetryAt DateTime?
+  createdAt   DateTime @default(now())
+
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId])
+  @@index([createdAt])
+  @@map("webhook_deliveries")
+  @@schema("public")
+}
+
+// ────────────────────────────────────────────────────────────
+// RECEIPTS
+// ────────────────────────────────────────────────────────────
+
+model Receipt {
+  id             String        @id @default(cuid())
+  tenantId       String
+  organizationId String
+  status         ReceiptStatus @default(DRAFT)
+  referenceNumber String?      @unique
+
+  // Extracted data
+  merchantName   String?
+  merchantAddress String?
+  merchantPhone  String?
+  transactionDate DateTime?
+  transactionTime String?
+  subtotal       Decimal?      @db.Decimal(15, 2)
+  tax            Decimal?      @db.Decimal(15, 2)
+  tip            Decimal?      @db.Decimal(15, 2)
+  total          Decimal?      @db.Decimal(15, 2)
+  currency       String?       @default("USD")
+  paymentMethod  PaymentMethod?
+  last4Digits    String?
+  notes          String?
+
+  // AI data
+  aiConfidence   Float?
+  aiProvider     AIProvider?
+  extractedAt    DateTime?
+
+  // Categorization
+  categoryId     String?
+  glAccountId    String?
+
+  // Soft delete + audit
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  deletedAt      DateTime?
+  createdBy      String
+  updatedBy      String
+
+  organization   Organization      @relation(fields: [organizationId], references: [id])
+  category       ExpenseCategory?  @relation(fields: [categoryId], references: [id])
+  glAccount      ChartOfAccount?   @relation(fields: [glAccountId], references: [id])
+  files          ReceiptFile[]
+  pages          ReceiptPage[]
+  ocrResults     ReceiptOCR[]
+  metadata       ReceiptMetadata[]
+  tags           ReceiptTagMap[]
+  comments       ReceiptComment[]
+  versions       ReceiptVersion[]
+  lineItems      ReceiptLineItem[]
+  approvals      Approval[]
+  matches        ReceiptMatch[]
+  journalEntries JournalEntry[]
+
+  @@index([tenantId])
+  @@index([organizationId])
+  @@index([status])
+  @@index([transactionDate])
+  @@index([merchantName])
+  @@index([deletedAt])
+  @@map("receipts")
+  @@schema("public")
+}
+
+model ReceiptFile {
+  id              String          @id @default(cuid())
+  receiptId       String
+  tenantId        String
+  organizationId  String
+  originalName    String
+  storageKey      String          // path in storage
+  storageProvider StorageProvider
+  mimeType        String
+  sizeBytes       Int
+  checksum        String          // SHA-256 of file
+  isOriginal      Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  createdBy       String
+
+  receipt Receipt      @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  pages   ReceiptPage[]
+
+  @@index([receiptId])
+  @@index([tenantId])
+  @@map("receipt_files")
+  @@schema("public")
+}
+
+model ReceiptPage {
+  id             String   @id @default(cuid())
+  receiptId      String
+  fileId         String
+  tenantId       String
+  pageNumber     Int
+  imageKey       String   // extracted page image in storage
+  width          Int?
+  height         Int?
+  createdAt      DateTime @default(now())
+
+  receipt Receipt     @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  file    ReceiptFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  ocr     ReceiptOCR[]
+
+  @@unique([fileId, pageNumber])
+  @@index([receiptId])
+  @@map("receipt_pages")
+  @@schema("public")
+}
+
+model ReceiptOCR {
+  id              String      @id @default(cuid())
+  receiptId       String
+  pageId          String?
+  tenantId        String
+  provider        OCRProvider
+  rawText         String      @db.Text
+  normalizedText  String?     @db.Text
+  confidence      Float
+  blocks          Json        // provider-specific block data
+  providerMetadata Json       @default("{}")
+  processedAt     DateTime    @default(now())
+  durationMs      Int?
+
+  receipt Receipt      @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  page    ReceiptPage? @relation(fields: [pageId], references: [id])
+
+  @@index([receiptId])
+  @@index([tenantId])
+  @@map("receipt_ocr")
+  @@schema("public")
+}
+
+model ReceiptMetadata {
+  id         String   @id @default(cuid())
+  receiptId  String
+  tenantId   String
+  key        String
+  value      String   @db.Text
+  createdAt  DateTime @default(now())
+
+  receipt Receipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+
+  @@unique([receiptId, key])
+  @@index([receiptId])
+  @@map("receipt_metadata")
+  @@schema("public")
+}
+
+model ReceiptLineItem {
+  id          String   @id @default(cuid())
+  receiptId   String
+  tenantId    String
+  description String
+  quantity    Decimal? @db.Decimal(10, 3)
+  unitPrice   Decimal? @db.Decimal(15, 2)
+  amount      Decimal  @db.Decimal(15, 2)
+  taxable     Boolean  @default(false)
+  sortOrder   Int      @default(0)
+
+  receipt Receipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+
+  @@index([receiptId])
+  @@map("receipt_line_items")
+  @@schema("public")
+}
+
+model ReceiptTag {
+  id             String   @id @default(cuid())
+  tenantId       String
+  organizationId String
+  name           String
+  color          String?
+  createdAt      DateTime @default(now())
+  createdBy      String
+
+  receipts ReceiptTagMap[]
+
+  @@unique([organizationId, name])
+  @@index([tenantId])
+  @@map("receipt_tags")
+  @@schema("public")
+}
+
+model ReceiptTagMap {
+  receiptId String
+  tagId     String
+  addedAt   DateTime @default(now())
+  addedBy   String
+
+  receipt Receipt    @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  tag     ReceiptTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([receiptId, tagId])
+  @@map("receipt_tag_maps")
+  @@schema("public")
+}
+
+model ReceiptComment {
+  id        String    @id @default(cuid())
+  receiptId String
+  tenantId  String
+  userId    String
+  body      String    @db.Text
+  editedAt  DateTime?
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  receipt Receipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@index([receiptId])
+  @@map("receipt_comments")
+  @@schema("public")
+}
+
+model ReceiptVersion {
+  id         String   @id @default(cuid())
+  receiptId  String
+  tenantId   String
+  version    Int
+  snapshot   Json     // full receipt state at this version
+  changedBy  String
+  changeNote String?
+  createdAt  DateTime @default(now())
+
+  receipt Receipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+
+  @@unique([receiptId, version])
+  @@index([receiptId])
+  @@map("receipt_versions")
+  @@schema("public")
+}
+
+// ────────────────────────────────────────────────────────────
+// EXPENSE CATEGORIZATION
+// ────────────────────────────────────────────────────────────
+
+model ExpenseCategory {
+  id             String   @id @default(cuid())
+  tenantId       String
+  organizationId String
+  name           String
+  code           String?
+  description    String?
+  parentId       String?
+  isActive       Boolean  @default(true)
+  isTaxDeductible Boolean @default(false)
+  glAccountId    String?
+  keywords       String[] // for AI matching
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdBy      String
+  updatedBy      String
+
+  organization Organization    @relation(fields: [organizationId], references: [id])
+  parent       ExpenseCategory? @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children     ExpenseCategory[] @relation("CategoryHierarchy")
+  receipts     Receipt[]
+  glAccount    ChartOfAccount?  @relation(fields: [glAccountId], references: [id])
+
+  @@unique([organizationId, code])
+  @@index([tenantId])
+  @@map("expense_categories")
+  @@schema("public")
+}
+
+model TaxTreatment {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  code        String
+  description String?
+  rate        Decimal  @db.Decimal(6, 4)
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("tax_treatments")
+  @@schema("public")
+}
+
+// ────────────────────────────────────────────────────────────
+// VENDORS
+// ────────────────────────────────────────────────────────────
+
+model Vendor {
+  id             String   @id @default(cuid())
+  tenantId       String
+  organizationId String
+  name           String
+  normalizedName String   // lowercase, trimmed for dedup
+  taxId          String?
+  email          String?
+  phone          String?
+  website        String?
+  address        Json?
+  notes          String?
+  isActive       Boolean  @default(true)
+  mergedIntoId   String?  // if merged into another vendor
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+  createdBy      String
+  updatedBy      String
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  aliases      VendorAlias[]
+  contacts     VendorContact[]
+  categories   VendorCategoryMap[]
+
+  @@unique([organizationId, normalizedName])
+  @@index([tenantId])
+  @@index([deletedAt])
+  @@map("vendors")
+  @@schema("public")
+}
+
+model VendorAlias {
+  id       String @id @default(cuid())
+  vendorId String
+  tenantId String
+  alias    String // alternate name / OCR variant
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@unique([vendorId, alias])
+  @@index([tenantId])
+  @@map("vendor_aliases")
+  @@schema("public")
+}
+
+model VendorCategory {
+  id       String @id @default(cuid())
+  tenantId String
+  name     String
+  createdAt DateTime @default(now())
+
+  vendors VendorCategoryMap[]
+
+  @@unique([tenantId, name])
+  @@map("vendor_categories")
+  @@schema("public")
+}
+
+model VendorCategoryMap {
+  vendorId   String
+  categoryId String
+
+  vendor   Vendor         @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  category VendorCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([vendorId, categoryId])
+  @@map("vendor_category_maps")
+  @@schema("public")
+}
+
+model VendorContact {
+  id        String   @id @default(cuid())
+  vendorId  String
+  tenantId  String
+  name      String
+  email     String?
+  phone     String?
+  role      String?
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
+  @@map("vendor_contacts")
+  @@schema("public")
+}
+
+// ────────────────────────────────────────────────────────────
+// BANK RECONCILIATION
+// ────────────────────────────────────────────────────────────
+
+model BankAccount {
+  id             String   @id @default(cuid())
+  tenantId       String
+  organizationId String
+  name           String
+  institution    String
+  accountType    String   // checking | savings | credit | etc.
+  last4          String?
+  currency       String   @default("USD")
+  glAccountId    String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdBy      String
+  updatedBy      String
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  transactions BankTransaction[]
+
+  @@index([tenantId])
+  @@map("bank_accounts")
+  @@schema("public")
+}
+
+model BankTransaction {
+  id            String              @id @default(cuid())
+  tenantId      String
+  bankAccountId String
+  externalId    String?             // bank's own transaction ID
+  type          BankTransactionType
+  amount        Decimal             @db.Decimal(15, 2)
+  currency      String              @default("USD")
+  description   String?
+  merchantName  String?
+  postedAt      DateTime
+  matchStatus   MatchStatus         @default(UNMATCHED)
+  metadata      Json                @default("{}")
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  bankAccount BankAccount    @relation(fields: [bankAccountId], references: [id])
+  matches     ReceiptMatch[]
+
+  @@unique([bankAccountId, externalId])
+  @@index([tenantId])
+  @@index([bankAccountId])
+  @@index([postedAt])
+  @@map("bank_transactions")
+  @@schema("public")
+}
+
+model ReceiptMatch {
+  id            String   @id @default(cuid())
+  tenantId      String
+  receiptId     String
+  transactionId String
+  confidence    Float    // 0–100
+  amountScore   Float
+  merchantScore Float
+  dateScore     Float
+  status        MatchStatus @default(PENDING)
+  matchedBy     String?  // user ID if manually matched
+  matchedAt     DateTime?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  receipt     Receipt         @relation(fields: [receiptId], references: [id])
+  transaction BankTransaction @relation(fields: [transactionId], references: [id])
+
+  @@unique([receiptId, transactionId])
+  @@index([tenantId])
+  @@map("receipt_matches")
+  @@schema("public")
+}
+
+// ────────────────────────────────────────────────────────────
+// BOOKKEEPING / ACCOUNTING
+// ────────────────────────────────────────────────────────────
+
+model ChartOfAccount {
+  id             String        @id @default(cuid())
+  tenantId       String
+  organizationId String
+  code           String
+  name           String
+  type           GLAccountType
+  parentId       String?
+  isActive       Boolean       @default(true)
+  isBankAccount  Boolean       @default(false)
+  isSystem       Boolean       @default(false)
+  description    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  createdBy      String
+  updatedBy      String
+
+  organization     Organization      @relation(fields: [organizationId], references: [id])
+  parent           ChartOfAccount?   @relation("AccountHierarchy", fields: [parentId], references: [id])
+  children         ChartOfAccount[]  @relation("AccountHierarchy")
+  journalLines     JournalLine[]
+  expenseCategories ExpenseCategory[]
+  receipts         Receipt[]
+
+  @@unique([organizationId, code])
+  @@index([tenantId])
+  @@map("chart_of_accounts")
+  @@schema("public")
+}
+
+model JournalEntry {
+  id             String             @id @default(cuid())
+  tenantId       String
+  organizationId String
+  receiptId      String?
+  entryNumber    String
+  basis          AccountingBasis    @default(ACCRUAL)
+  status         JournalEntryStatus @default(DRAFT)
+  description    String?
+  entryDate      DateTime
+  postedAt       DateTime?
+  postedBy       String?
+  voidedAt       DateTime?
+  voidedBy       String?
+  voidReason     String?
+  metadata       Json               @default("{}")
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  createdBy      String
+  updatedBy      String
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  receipt      Receipt?      @relation(fields: [receiptId], references: [id])
+  lines        JournalLine[]
+
+  @@unique([organizationId, entryNumber])
+  @@index([tenantId])
+  @@index([receiptId])
+  @@map("journal_entries")
+  @@schema("public")
+}
+
+model JournalLine {
+  id             String   @id @default(cuid())
+  tenantId       String
+  journalEntryId String
+  accountId      String
+  description    String?
+  debit          Decimal? @db.Decimal(15, 2)
+  credit         Decimal? @db.Decimal(15, 2)
+  currency       String   @default("USD")
+  sortOrder      Int      @default(0)
+
+  journalEntry JournalEntry   @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account      ChartOfAccount @relation(fields: [accountId], references: [id])
+
+  @@index([journalEntryId])
+  @@index([accountId])
+  @@map("journal_lines")
+  @@schema("public")
+}
+
+// ────────────────────────────────────────────────────────────
+// APPROVAL WORKFLOWS
+// ────────────────────────────────────────────────────────────
+
+model Workflow {
+  id             String   @id @default(cuid())
+  tenantId       String
+  organizationId String
+  name           String
+  description    String?
+  isActive       Boolean  @default(true)
+  triggerType    String   // amount_threshold | category | manual
+  conditions     Json     @default("[]")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdBy      String
+  updatedBy      String
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  steps        WorkflowStep[]
+  approvals    Approval[]
+
+  @@unique([organizationId, name])
+  @@index([tenantId])
+  @@map("workflows")
+  @@schema("public")
+}
+
+model WorkflowStep {
+  id         String           @id @default(cuid())
+  workflowId String
+  tenantId   String
+  name       String
+  type       WorkflowStepType @default(APPROVAL)
+  stepOrder  Int
+  approverType String         // role | user | department
+  approverId   String
+  timeout    Int?             // hours until auto-escalation
+  conditions Json             @default("{}")
+
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@unique([workflowId, stepOrder])
+  @@index([workflowId])
+  @@map("workflow_steps")
+  @@schema("public")
+}
+
+model Approval {
+  id             String         @id @default(cuid())
+  tenantId       String
+  receiptId      String
+  workflowId     String
+  requestedBy    String
+  currentStepId  String?
+  status         ApprovalStatus @default(PENDING)
+  submittedAt    DateTime?
+  completedAt    DateTime?
+  dueAt          DateTime?
+  metadata       Json           @default("{}")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  receipt    Receipt          @relation(fields: [receiptId], references: [id])
+  workflow   Workflow         @relation(fields: [workflowId], references: [id])
+  requester  User             @relation(fields: [requestedBy], references: [id])
+  comments   ApprovalComment[]
+
+  @@index([tenantId])
+  @@index([receiptId])
+  @@index([status])
+  @@map("approvals")
+  @@schema("public")
+}
+
+model ApprovalComment {
+  id         String    @id @default(cuid())
+  approvalId String
+  tenantId   String
+  userId     String
+  body       String    @db.Text
+  action     String?   // approved | rejected | requested_info
+  deletedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  approval Approval @relation(fields: [approvalId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@index([approvalId])
+  @@map("approval_comments")
+  @@schema("public")
+}
+
+// ────────────────────────────────────────────────────────────
+// NOTIFICATIONS
+// ────────────────────────────────────────────────────────────
+
+model Notification {
+  id         String              @id @default(cuid())
+  tenantId   String
+  userId     String
+  channel    NotificationChannel
+  type       String              // receipt.processed, approval.needed, etc.
+  title      String
+  body       String
+  data       Json                @default("{}")
+  readAt     DateTime?
+  sentAt     DateTime?
+  failedAt   DateTime?
+  error      String?
+  createdAt  DateTime            @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([readAt])
+  @@map("notifications")
+  @@schema("public")
+}
+
+// ────────────────────────────────────────────────────────────
+// AUDIT LOG (separate schema for compliance isolation)
+// ────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id             String      @id @default(cuid())
+  tenantId       String
+  organizationId String?
+  userId         String?
+  action         AuditAction
+  resource       String      // e.g. "Receipt"
+  resourceId     String?
+  oldValue       Json?
+  newValue       Json?
+  diff           Json?       // computed diff
+  ipAddress      String?
+  userAgent      String?
+  requestId      String?
+  metadata       Json        @default("{}")
+  createdAt      DateTime    @default(now())
+
+  user User? @relation("AuditUser", fields: [userId], references: [id])
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([resource, resourceId])
+  @@index([createdAt])
+  @@map("audit_logs")
+  @@schema("audit")
+}
