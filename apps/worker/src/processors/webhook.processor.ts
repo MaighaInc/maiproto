@@ -1,5 +1,4 @@
 import { Worker, type Job } from 'bullmq';
-import type { Redis } from 'ioredis';
 import type { PrismaClient } from '@receiptflow/database';
 import { QUEUE_NAMES } from '@receiptflow/shared/constants';
 import type { Logger } from 'pino';
@@ -14,6 +13,7 @@ export interface WebhookWorkerConfig {
 
 export interface WebhookDeliveryJobData {
   webhookId: string;
+  event: string;
   url: string;
   body: string;
   signature: string;
@@ -21,7 +21,7 @@ export interface WebhookDeliveryJobData {
 }
 
 export function createWebhookWorker(
-  redis: Redis,
+  redisUrl: string,
   prisma: PrismaClient,
   logger: Logger,
   config: WebhookWorkerConfig,
@@ -29,7 +29,7 @@ export function createWebhookWorker(
   return new Worker<WebhookDeliveryJobData>(
     QUEUE_NAMES.WEBHOOK_DELIVERY,
     async (job: Job<WebhookDeliveryJobData>) => {
-      const { webhookId, url, body, signature, attempt = 1 } = job.data;
+      const { webhookId, event, url, body, signature, attempt = 1 } = job.data;
 
       const deliveryStart = Date.now();
       let statusCode = 0;
@@ -56,16 +56,18 @@ export function createWebhookWorker(
       }
 
       const durationMs = Date.now() - deliveryStart;
+      void durationMs; // recorded for observability; not in current schema
 
       await prisma.webhookDelivery.create({
         data: {
           webhookId,
-          attempt,
-          statusCode,
-          success,
-          requestBody: body,
-          responseBody: responseBody.slice(0, config.maxResponseBodyBytes),
-          durationMs,
+          event,
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+          payload: JSON.parse(body),
+          statusCode: statusCode || null,
+          response: responseBody.slice(0, config.maxResponseBodyBytes) || null,
+          attempts: attempt,
+          succeededAt: success ? new Date() : null,
         },
       });
 
@@ -77,24 +79,20 @@ export function createWebhookWorker(
       if (!success) {
         await prisma.webhook.update({
           where: { id: webhookId },
-          data: { consecutiveFailures: { increment: 1 } },
+          data: { retryCount: { increment: 1 } },
         });
         logger.error({ webhookId, url, attempts: attempt }, 'Webhook delivery permanently failed');
       } else {
         await prisma.webhook.update({
           where: { id: webhookId },
-          data: { consecutiveFailures: 0, lastDeliveredAt: new Date() },
+          data: { retryCount: 0 },
         });
-        logger.debug({ webhookId, durationMs, statusCode }, 'Webhook delivered');
+        logger.debug({ webhookId, statusCode }, 'Webhook delivered');
       }
     },
     {
-      connection: redis,
+      connection: { url: redisUrl },
       concurrency: config.concurrency,
-      defaultJobOptions: {
-        attempts: config.maxAttempts,
-        backoff: { type: 'exponential', delay: config.backoffBaseMs },
-      },
     },
   );
 }

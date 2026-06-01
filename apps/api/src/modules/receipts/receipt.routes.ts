@@ -5,7 +5,7 @@ import type { JwtService } from '@receiptflow/auth/jwt';
 import { authenticate } from '../../middleware/auth.js';
 import { asyncHandler } from '../../middleware/async-handler.js';
 import { validate } from '../../middleware/validate.js';
-import { receiptQuerySchema, updateReceiptSchema } from '@receiptflow/shared/validators';
+import { receiptQuerySchema } from '@receiptflow/shared/validators';
 import { ALLOWED_MIME_TYPES, MAX_FILE_SIZE_BYTES, MAX_FILES_PER_UPLOAD } from '@receiptflow/shared/constants';
 import { ValidationError } from '@receiptflow/shared/errors';
 
@@ -27,11 +27,21 @@ export function createReceiptRouter(receiptService: ReceiptService, jwtService: 
 
   // GET /receipts
   router.get('/', auth, validate(receiptQuerySchema, 'query'), asyncHandler(async (req, res) => {
-    const orgId = req.query['organizationId'] as string;
+    const q = req.query as unknown as import('@receiptflow/shared/validators').ReceiptQueryInput;
     const result = await receiptService.getReceipts({
-      ...(req.query as Parameters<ReceiptService['getReceipts']>[0]),
-      organizationId: orgId,
       tenantId: req.tenantId!,
+      organizationId: req.auth!.oid,
+      page: q.page,
+      pageSize: q.perPage,
+      sortOrder: q.sortOrder,
+      ...(q.status !== undefined && { status: q.status }),
+      ...(q.categoryId !== undefined && { categoryId: q.categoryId }),
+      ...(q.from !== undefined && { dateFrom: q.from }),
+      ...(q.to !== undefined && { dateTo: q.to }),
+      ...(q.minAmount !== undefined && { amountMin: q.minAmount }),
+      ...(q.maxAmount !== undefined && { amountMax: q.maxAmount }),
+      ...(q.search !== undefined && { search: q.search }),
+      ...(q.sortBy !== undefined && { sortBy: q.sortBy }),
     });
     res.json({ success: true, ...result });
   }));
@@ -41,7 +51,7 @@ export function createReceiptRouter(receiptService: ReceiptService, jwtService: 
     const files = req.files as Express.Multer.File[];
     if (!files?.length) throw new ValidationError('No files provided');
 
-    const orgId = (req.body as { organizationId?: string }).organizationId;
+    const orgId = (req.body as { organizationId?: string }).organizationId ?? req.auth!.oid;
     if (!orgId) throw new ValidationError('organizationId is required');
 
     const result = await receiptService.uploadReceipts({

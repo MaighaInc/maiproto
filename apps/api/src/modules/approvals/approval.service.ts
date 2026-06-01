@@ -4,22 +4,17 @@ import { NotFoundError, BusinessRuleError } from '@receiptflow/shared/errors';
 export class ApprovalService {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async getPendingApprovals(userId: string, tenantId: string, organizationId: string): Promise<unknown[]> {
+  async getPendingApprovals(userId: string, tenantId: string, _organizationId: string): Promise<unknown[]> {
     return this.prisma.approval.findMany({
       where: {
-        assigneeId: userId,
+        requestedBy: userId,
         tenantId,
-        organizationId,
         status: 'PENDING',
-        deletedAt: null,
         dueAt: { gt: new Date() },
       },
       include: {
         receipt: {
-          include: {
-            metadata: { select: { merchantName: true, total: true, transactionDate: true } },
-            vendor: { select: { id: true, name: true } },
-          },
+          select: { id: true, merchantName: true, total: true, transactionDate: true },
         },
         workflow: { select: { name: true } },
       },
@@ -34,7 +29,7 @@ export class ApprovalService {
     comment?: string,
   ): Promise<void> {
     const approval = await this.prisma.approval.findFirst({
-      where: { id: approvalId, assigneeId: userId, tenantId, status: 'PENDING', deletedAt: null },
+      where: { id: approvalId, requestedBy: userId, tenantId, status: 'PENDING' },
       include: { receipt: true },
     });
     if (!approval) throw new NotFoundError('Approval not found or not assigned to you');
@@ -42,23 +37,23 @@ export class ApprovalService {
     await this.prisma.$transaction(async (tx) => {
       await tx.approval.update({
         where: { id: approvalId },
-        data: { status: 'APPROVED', decidedAt: new Date() },
+        data: { status: 'APPROVED', completedAt: new Date() },
       });
 
       if (comment) {
         await tx.approvalComment.create({
-          data: { approvalId, userId, content: comment },
+          data: { approvalId, userId, tenantId: approval.tenantId, body: comment },
         });
       }
 
       // Check if all approvals for this receipt are approved → mark receipt APPROVED
       const pendingCount = await tx.approval.count({
-        where: { receiptId: approval.receiptId, status: 'PENDING', deletedAt: null },
+        where: { receiptId: approval.receiptId, status: 'PENDING' },
       });
       if (pendingCount === 0) {
         await tx.receipt.update({
           where: { id: approval.receiptId },
-          data: { status: 'APPROVED', approvedAt: new Date(), approvedById: userId },
+          data: { status: 'APPROVED' },
         });
       }
     });
@@ -73,17 +68,17 @@ export class ApprovalService {
     if (!reason.trim()) throw new BusinessRuleError('Rejection reason is required');
 
     const approval = await this.prisma.approval.findFirst({
-      where: { id: approvalId, assigneeId: userId, tenantId, status: 'PENDING', deletedAt: null },
+      where: { id: approvalId, requestedBy: userId, tenantId, status: 'PENDING' },
     });
     if (!approval) throw new NotFoundError('Approval not found or not assigned to you');
 
     await this.prisma.$transaction([
       this.prisma.approval.update({
         where: { id: approvalId },
-        data: { status: 'REJECTED', decidedAt: new Date() },
+        data: { status: 'REJECTED', completedAt: new Date() },
       }),
       this.prisma.approvalComment.create({
-        data: { approvalId, userId, content: reason },
+        data: { approvalId, userId, tenantId: approval.tenantId, body: reason },
       }),
       this.prisma.receipt.update({
         where: { id: approval.receiptId },

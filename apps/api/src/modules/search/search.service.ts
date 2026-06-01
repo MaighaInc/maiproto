@@ -19,14 +19,7 @@ export class SearchService {
       organizationId,
       deletedAt: null,
       OR: [
-        {
-          metadata: {
-            merchantName: { contains: query, mode: 'insensitive' as const },
-          },
-        },
-        {
-          vendor: { name: { contains: query, mode: 'insensitive' as const } },
-        },
+        { merchantName: { contains: query, mode: 'insensitive' as const } },
       ],
     };
 
@@ -38,8 +31,6 @@ export class SearchService {
         take: pageSize,
         orderBy: { createdAt: 'desc' },
         include: {
-          vendor: { select: { id: true, name: true } },
-          metadata: { select: { merchantName: true, total: true, transactionDate: true } },
           category: { select: { id: true, name: true } },
         },
       }),
@@ -63,22 +54,18 @@ export class SearchService {
       deletedAt: null,
     };
 
-    if (filters.amountMin !== undefined || filters.amountMax !== undefined) {
+    if (filters.minAmount !== undefined || filters.maxAmount !== undefined) {
       where['total'] = {
-        ...(filters.amountMin !== undefined ? { gte: BigInt(Math.round(filters.amountMin * 100)) } : {}),
-        ...(filters.amountMax !== undefined ? { lte: BigInt(Math.round(filters.amountMax * 100)) } : {}),
+        ...(filters.minAmount !== undefined ? { gte: BigInt(Math.round(filters.minAmount * 100)) } : {}),
+        ...(filters.maxAmount !== undefined ? { lte: BigInt(Math.round(filters.maxAmount * 100)) } : {}),
       };
     }
 
-    if (filters.dateFrom ?? filters.dateTo) {
+    if (filters.from ?? filters.to) {
       where['transactionDate'] = {
-        ...(filters.dateFrom ? { gte: new Date(filters.dateFrom) } : {}),
-        ...(filters.dateTo ? { lte: new Date(filters.dateTo) } : {}),
+        ...(filters.from ? { gte: filters.from } : {}),
+        ...(filters.to ? { lte: filters.to } : {}),
       };
-    }
-
-    if (filters.vendor) {
-      where['vendor'] = { name: { contains: filters.vendor, mode: 'insensitive' } };
     }
 
     const [total, data] = await Promise.all([
@@ -89,8 +76,6 @@ export class SearchService {
         take: pageSize,
         orderBy: { createdAt: 'desc' },
         include: {
-          vendor: { select: { id: true, name: true } },
-          metadata: { select: { merchantName: true, total: true, transactionDate: true } },
           category: { select: { id: true, name: true } },
         },
       }),

@@ -61,8 +61,8 @@ export class AuthService {
 
   async register(input: RegisterInput): Promise<{ userId: string; tenantId: string }> {
     const pwStrength = validatePasswordStrength(input.password);
-    if (!pwStrength.valid) {
-      throw new ValidationError(`Password too weak: ${pwStrength.errors.join(', ')}`);
+    if (pwStrength !== null) {
+      throw new ValidationError(`Password too weak: ${pwStrength}`);
     }
 
     const existing = await this.prisma.user.findFirst({
@@ -77,7 +77,7 @@ export class AuthService {
 
     const passwordHash = await hashPassword(input.password);
     const verificationToken = generateSecureToken();
-    const verificationHash = hashToken(verificationToken);
+    const verificationHash = await hashToken(verificationToken);
 
     const result = await this.prisma.$transaction(async (tx) => {
       const tenant = await tx.tenant.create({
@@ -85,7 +85,6 @@ export class AuthService {
           name: input.organizationName,
           slug: input.tenantSlug,
           status: 'ACTIVE',
-          plan: 'STARTER',
         },
       });
 
@@ -94,7 +93,8 @@ export class AuthService {
           tenantId: tenant.id,
           name: input.organizationName,
           slug: input.tenantSlug,
-          isDefault: true,
+          createdBy: '',
+          updatedBy: '',
         },
       });
 
@@ -111,13 +111,14 @@ export class AuthService {
       });
 
       await tx.userOrganization.create({
-        data: { userId: user.id, organizationId: org.id, isOwner: true },
+        data: { userId: user.id, organizationId: org.id, tenantId: tenant.id, isDefault: true },
       });
 
       await tx.emailVerification.create({
         data: {
           userId: user.id,
-          tokenHash: verificationHash,
+          tenantId: tenant.id,
+          token: verificationHash,
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         },
       });
@@ -262,9 +263,10 @@ export class AuthService {
       throw new AuthError('Invalid refresh token', 'TOKEN_INVALID');
     }
 
+    const tokenHash = await hashToken(token);
     const stored = await this.prisma.refreshToken.findFirst({
       where: {
-        tokenHash: hashToken(token),
+        tokenHash,
         userId: payload.sub,
         revokedAt: null,
         expiresAt: { gt: new Date() },
@@ -272,10 +274,19 @@ export class AuthService {
       include: {
         user: {
           include: {
-            userRoles: {
+            organizations: {
+              take: 1,
               include: {
-                role: {
-                  include: { rolePermissions: { include: { permission: true } } },
+                roles: {
+                  include: {
+                    role: {
+                      include: {
+                        permissions: {
+                          include: { permission: { select: { resource: true, action: true } } },
+                        },
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -299,31 +310,42 @@ export class AuthService {
       data: { revokedAt: new Date() },
     });
 
-    const roles = stored.user.userRoles.map((ur) => ur.role.name);
+    const roles = stored.user.organizations.flatMap((uo) => uo.roles.map((ur) => ur.role.name));
     const permissions = [
       ...new Set(
-        stored.user.userRoles.flatMap((ur) =>
-          ur.role.rolePermissions.map((rp) => rp.permission.name),
+        stored.user.organizations.flatMap((uo) =>
+          uo.roles.flatMap((ur) =>
+            ur.role.permissions.map((rp) => `${rp.permission.resource}:${rp.permission.action}`),
+          ),
         ),
       ),
     ];
 
-    const newTokens = await this.jwt.generateTokenFamily({
+    const newFamily = this.jwt.generateTokenFamily();
+    const organizationId = stored.user.organizations[0]?.organizationId ?? '';
+    const newAccessToken = this.jwt.signAccessToken({
       sub: stored.user.id,
       tid: stored.tenantId,
-      oid: stored.user.userRoles[0]?.organizationId ?? '',
+      oid: organizationId,
       email: stored.user.email,
       roles,
       permissions,
     });
+    const newRefreshToken = this.jwt.signRefreshToken(stored.user.id, stored.tenantId, newFamily);
+    const newTokens: TokenPair = {
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
+      accessTokenExpiresAt: this.jwt.getAccessTokenExpiry(),
+      refreshTokenExpiresAt: this.jwt.getRefreshTokenExpiry(),
+    };
 
     await this.prisma.refreshToken.create({
       data: {
         userId: stored.user.id,
         tenantId: stored.tenantId,
-        tokenHash: hashToken(newTokens.refreshToken),
+        tokenHash: await hashToken(newRefreshToken),
         family: payload.family,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        expiresAt: newTokens.refreshTokenExpiresAt,
         userAgent: stored.userAgent,
         ipAddress: stored.ipAddress,
       },
@@ -333,16 +355,17 @@ export class AuthService {
   }
 
   async logout(refreshToken: string): Promise<void> {
+    const tokenHash = await hashToken(refreshToken);
     await this.prisma.refreshToken.updateMany({
-      where: { tokenHash: hashToken(refreshToken), revokedAt: null },
+      where: { tokenHash, revokedAt: null },
       data: { revokedAt: new Date() },
     });
   }
 
   async verifyEmail(token: string): Promise<void> {
-    const hash = hashToken(token);
+    const hash = await hashToken(token);
     const verification = await this.prisma.emailVerification.findFirst({
-      where: { tokenHash: hash, usedAt: null, expiresAt: { gt: new Date() } },
+      where: { token: hash, usedAt: null, expiresAt: { gt: new Date() } },
     });
     if (!verification) throw new NotFoundError('Verification token is invalid or expired');
 
@@ -366,10 +389,12 @@ export class AuthService {
     if (!user) return;
 
     const token = generateSecureToken();
+    const tokenHash = await hashToken(token);
     await this.prisma.passwordReset.create({
       data: {
         userId: user.id,
-        tokenHash: hashToken(token),
+        tenantId: user.tenantId,
+        tokenHash,
         expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
     });
@@ -385,11 +410,11 @@ export class AuthService {
 
   async resetPassword(token: string, newPassword: string): Promise<void> {
     const pwStrength = validatePasswordStrength(newPassword);
-    if (!pwStrength.valid) {
-      throw new ValidationError(`Password too weak: ${pwStrength.errors.join(', ')}`);
+    if (pwStrength !== null) {
+      throw new ValidationError(`Password too weak: ${pwStrength}`);
     }
 
-    const hash = hashToken(token);
+    const hash = await hashToken(token);
     const reset = await this.prisma.passwordReset.findFirst({
       where: { tokenHash: hash, usedAt: null, expiresAt: { gt: new Date() } },
     });
@@ -454,8 +479,4 @@ export class AuthService {
       data: { mfaEnabled: true },
     });
   }
-}
-
-function randomFamily(): string {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }

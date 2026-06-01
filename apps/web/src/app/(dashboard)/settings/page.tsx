@@ -15,7 +15,7 @@ interface UserProfile {
 
 export default async function SettingsPage(): Promise<React.JSX.Element> {
   const session = await auth();
-  const token = session?.user?.['accessToken'] as string | undefined;
+  const token = session?.user?.accessToken;
 
   let profile: UserProfile | null = null;
 

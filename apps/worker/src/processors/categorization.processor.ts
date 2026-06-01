@@ -1,7 +1,6 @@
 import { Worker, type Job } from 'bullmq';
-import type { Redis } from 'ioredis';
 import type { PrismaClient } from '@receiptflow/database';
-import type { IAIProvider } from '@receiptflow/ai';
+import type { IAIProvider, ReceiptExtractionResult } from '@receiptflow/ai';
 import { QUEUE_NAMES } from '@receiptflow/shared/constants';
 import type { Logger } from 'pino';
 
@@ -16,7 +15,7 @@ export interface CategorizationWorkerConfig {
 }
 
 export function createCategorizationWorker(
-  redis: Redis,
+  redisUrl: string,
   prisma: PrismaClient,
   ai: IAIProvider,
   logger: Logger,
@@ -29,17 +28,16 @@ export function createCategorizationWorker(
       logger.info({ receiptId }, 'Processing categorization job');
 
       const receipt = await prisma.receipt.findFirst({
-        where: { id: receiptId, tenantId, deletedAt: null },
-        include: { metadata: true },
+        where: { id: receiptId, tenantId },
       });
 
-      if (!receipt?.metadata) {
-        logger.warn({ receiptId }, 'Receipt metadata not found for categorization');
+      if (!receipt) {
+        logger.warn({ receiptId }, 'Receipt not found for categorization');
         return;
       }
 
       const categories = await prisma.expenseCategory.findMany({
-        where: { tenantId, organizationId, isActive: true, deletedAt: null },
+        where: { tenantId, organizationId, isActive: true },
         select: { id: true, name: true, code: true },
       });
 
@@ -49,38 +47,46 @@ export function createCategorizationWorker(
       }
 
       const categoryNames = categories.map((c) => `${c.name} (${c.code})`);
-      const extractionData = {
-        merchantName: receipt.metadata.merchantName ?? undefined,
-        total: receipt.metadata.total ? Number(receipt.metadata.total) / 100 : undefined,
-        currency: receipt.metadata.currency ?? 'USD',
+      const extractionData: ReceiptExtractionResult = {
+        merchantName: receipt.merchantName ?? null,
+        merchantAddress: receipt.merchantAddress ?? null,
+        merchantPhone: receipt.merchantPhone ?? null,
+        transactionDate: receipt.transactionDate?.toISOString() ?? null,
+        transactionTime: receipt.transactionTime ?? null,
+        subtotal: receipt.subtotal ? Number(receipt.subtotal) : null,
+        tax: receipt.tax ? Number(receipt.tax) : null,
+        tip: receipt.tip ? Number(receipt.tip) : null,
+        total: receipt.total ? Number(receipt.total) : null,
+        currency: receipt.currency ?? null,
+        paymentMethod: receipt.paymentMethod ?? null,
+        last4Digits: receipt.last4Digits ?? null,
+        confidence: receipt.aiConfidence ?? 0,
       };
 
-      const result = await ai.categorizeExpense(extractionData as never, categoryNames);
+      const result = await ai.categorizeExpense(extractionData, categoryNames);
 
       // Find the matched category by name
       const matched = categories.find(
         (c) =>
           result.category === c.name ||
           result.category === c.code ||
-          categoryNames.some(
-            (n) => n === result.category && n.includes(c.name),
-          ),
+          categoryNames.some((n) => n === result.category && n.includes(c.name)),
       );
 
       if (matched) {
         await prisma.receipt.update({
           where: { id: receiptId },
-          data: { categoryId: matched.id, status: 'CATEGORIZED' },
+          data: { categoryId: matched.id, status: 'PROCESSED' },
         });
         logger.info({ receiptId, category: matched.name, confidence: result.confidence }, 'Categorized');
       } else {
         await prisma.receipt.update({
           where: { id: receiptId },
-          data: { status: 'REVIEW_REQUIRED' },
+          data: { status: 'DRAFT' },
         });
         logger.warn({ receiptId, suggestedCategory: result.category }, 'Category not matched');
       }
     },
-    { connection: redis, concurrency: config.concurrency },
+    { connection: { url: redisUrl }, concurrency: config.concurrency },
   );
 }

@@ -22,7 +22,7 @@ export default async function AccountingPage({
   searchParams: Promise<{ page?: string; status?: string }>;
 }): Promise<React.JSX.Element> {
   const session = await auth();
-  const token = session?.user?.['accessToken'] as string | undefined;
+  const token = session?.user?.accessToken;
   const { page = '1', status } = await searchParams;
 
   let entries: JournalEntry[] = [];

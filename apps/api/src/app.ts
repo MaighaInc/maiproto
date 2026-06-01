@@ -4,10 +4,6 @@ import cors from 'cors';
 import compression from 'compression';
 import pinoHttp from 'pino-http';
 import rateLimit from 'express-rate-limit';
-import swaggerUi from 'swagger-ui-express';
-import { readFile } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { prisma } from '@receiptflow/database';
 import type { Redis } from 'ioredis';
@@ -18,6 +14,7 @@ import { logger } from './config/logger.js';
 import { requestId } from './middleware/request-id.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { resolveTenant } from './middleware/tenant.js';
+import { authenticate } from './middleware/auth.js';
 
 import { AuthService } from './modules/auth/auth.service.js';
 import { createAuthRouter } from './modules/auth/auth.routes.js';
@@ -61,7 +58,8 @@ export function createApp(env: Env, services: Services, redis: Redis): Applicati
   app.use(compression());
 
   // --- HTTP request logging ---
-  app.use(pinoHttp({ logger }));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  app.use((pinoHttp as any)({ logger }));
 
   // --- Request ID ---
   app.use(requestId);
@@ -112,32 +110,36 @@ export function createApp(env: Env, services: Services, redis: Redis): Applicati
   );
   app.use('/api/v1/auth', createAuthRouter(authService, services.jwt));
 
-  // All routes below require tenant resolution
+  // All routes below require authentication + tenant resolution
   const tenantMiddleware = resolveTenant(prisma);
+  const authMiddleware = authenticate(services.jwt);
+  const protected_ = [authMiddleware, tenantMiddleware] as const;
 
-  const receiptService = new ReceiptService(prisma, services.storage, redis, {
+  const providerMap = { local: 'LOCAL' as const, s3: 'S3' as const, r2: 'R2' as const };
+  const receiptService = new ReceiptService(prisma, services.storage, env.REDIS_URL, {
     ocrJobAttempts: env.OCR_JOB_ATTEMPTS,
     ocrJobBackoffDelayMs: env.OCR_JOB_BACKOFF_DELAY_MS,
+    storageProvider: providerMap[env.STORAGE_PROVIDER],
   });
-  app.use('/api/v1/receipts', tenantMiddleware, createReceiptRouter(receiptService, services.jwt));
+  app.use('/api/v1/receipts', ...protected_, createReceiptRouter(receiptService, services.jwt));
 
   const vendorService = new VendorService(prisma);
-  app.use('/api/v1/vendors', tenantMiddleware, createVendorRouter(vendorService, services.jwt));
+  app.use('/api/v1/vendors', ...protected_, createVendorRouter(vendorService, services.jwt));
 
   const accountingService = new AccountingService(prisma);
-  app.use('/api/v1/accounting', tenantMiddleware, createAccountingRouter(accountingService, services.jwt));
+  app.use('/api/v1/accounting', ...protected_, createAccountingRouter(accountingService, services.jwt));
 
   const searchService = new SearchService(prisma, services.ai);
-  app.use('/api/v1/search', tenantMiddleware, createSearchRouter(searchService, services.jwt));
+  app.use('/api/v1/search', ...protected_, createSearchRouter(searchService, services.jwt));
 
   const reportsService = new ReportsService(prisma);
-  app.use('/api/v1/reports', tenantMiddleware, createReportsRouter(reportsService, services.jwt));
+  app.use('/api/v1/reports', ...protected_, createReportsRouter(reportsService, services.jwt));
 
   const approvalService = new ApprovalService(prisma);
-  app.use('/api/v1/approvals', tenantMiddleware, createApprovalRouter(approvalService, services.jwt));
+  app.use('/api/v1/approvals', ...protected_, createApprovalRouter(approvalService, services.jwt));
 
   const webhookService = new WebhookService(prisma, redis);
-  app.use('/api/v1/webhooks', tenantMiddleware, createWebhookRouter(webhookService, services.jwt));
+  app.use('/api/v1/webhooks', ...protected_, createWebhookRouter(webhookService, services.jwt));
 
   // --- Error handler (must be last) ---
   app.use(errorHandler);

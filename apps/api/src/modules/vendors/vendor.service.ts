@@ -31,10 +31,12 @@ export class VendorService {
         tenantId: input.tenantId,
         organizationId: input.organizationId,
         name: input.name,
-        website: input.website,
-        taxId: input.taxId,
-        defaultCategoryId: input.defaultCategoryId,
-        notes: input.notes,
+        normalizedName: input.name.toLowerCase().trim(),
+        website: input.website ?? null,
+        taxId: input.taxId ?? null,
+        notes: input.notes ?? null,
+        createdBy: '',
+        updatedBy: '',
       },
     });
   }
@@ -60,7 +62,6 @@ export class VendorService {
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
         orderBy: { name: 'asc' },
-        include: { defaultCategory: { select: { id: true, name: true } } },
       }),
     ]);
 
@@ -72,8 +73,6 @@ export class VendorService {
       where: { id, tenantId, organizationId, deletedAt: null },
       include: {
         aliases: true,
-        defaultCategory: true,
-        receipts: { take: 10, orderBy: { createdAt: 'desc' }, select: { id: true, status: true } },
       },
     });
     if (!vendor) throw new NotFoundError('Vendor not found');

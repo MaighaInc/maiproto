@@ -45,8 +45,8 @@ export function createServices(env: Env): Services {
       ? {
           textract: {
             region: env.AWS_REGION ?? 'us-east-1',
-            accessKeyId: env.AWS_ACCESS_KEY_ID,
-            secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+            accessKeyId: env.AWS_ACCESS_KEY_ID ?? '',
+            secretAccessKey: env.AWS_SECRET_ACCESS_KEY ?? '',
           },
         }
       : {}),
@@ -77,7 +77,7 @@ export function createServices(env: Env): Services {
   const storage = createStorageProvider({
     provider: env.STORAGE_PROVIDER,
     ...(env.STORAGE_PROVIDER === 'local'
-      ? { local: { basePath: env.STORAGE_LOCAL_BASE_PATH ?? './uploads', baseUrl: env.STORAGE_LOCAL_BASE_URL ?? 'http://localhost:3001/uploads' } }
+      ? { local: { basePath: env.STORAGE_LOCAL_BASE_PATH ?? './uploads', baseUrl: `${env.API_URL}/uploads` } }
       : {}),
     ...(env.STORAGE_PROVIDER === 's3' &&
     env.AWS_ACCESS_KEY_ID &&
@@ -138,5 +138,5 @@ export function createServices(env: Env): Services {
     ? createSlackProvider({ webhookUrl: env.SLACK_WEBHOOK_URL })
     : undefined;
 
-  return { jwt, encryption, ai, ocr, storage, email, slack };
+  return { jwt, encryption, ai, ocr, storage, email, ...(slack ? { slack } : {}) };
 }

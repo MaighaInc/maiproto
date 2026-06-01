@@ -65,7 +65,10 @@ export type AuthErrorCode =
   | 'MFA_INVALID'
   | 'ACCOUNT_LOCKED'
   | 'ACCOUNT_SUSPENDED'
-  | 'EMAIL_NOT_VERIFIED';
+  | 'EMAIL_NOT_VERIFIED'
+  | 'TOKEN_MISSING'
+  | 'INSUFFICIENT_PERMISSIONS'
+  | 'TOKEN_REUSE';
 
 // ─── 403 Forbidden ──────────────────────────────────────────────────────────
 

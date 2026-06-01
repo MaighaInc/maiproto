@@ -16,7 +16,7 @@ interface Organization {
 
 export default async function OrganizationSettingsPage(): Promise<React.JSX.Element> {
   const session = await auth();
-  const token = session?.user?.['accessToken'] as string | undefined;
+  const token = session?.user?.accessToken;
 
   let org: Organization | null = null;
 

@@ -14,7 +14,7 @@ interface KPIData {
 
 export default async function DashboardPage(): Promise<React.JSX.Element> {
   const session = await auth();
-  const token = session?.user?.['accessToken'] as string | undefined;
+  const token = session?.user?.accessToken;
 
   let kpi: KPIData = { totalSpend: 0, receiptCount: 0, pendingApprovals: 0, unmatchedTransactions: 0 };
 

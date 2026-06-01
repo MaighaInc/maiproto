@@ -12,7 +12,7 @@ export function createSearchRouter(searchService: SearchService, jwtService: Jwt
 
   // GET /search?query=...&organizationId=...
   router.get('/', auth, validate(searchSchema, 'query'), asyncHandler(async (req, res) => {
-    const { query, organizationId, page = 1, pageSize = 20 } = req.query as {
+    const { query, organizationId, page = 1, pageSize = 20 } = req.query as unknown as {
       query: string; organizationId: string; page?: number; pageSize?: number;
     };
     const result = await searchService.search(

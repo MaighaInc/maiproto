@@ -2,7 +2,7 @@ const API_URL = process.env['NEXT_PUBLIC_API_URL'] ?? '';
 
 export async function apiFetch<T>(
   path: string,
-  options: RequestInit & { accessToken?: string } = {},
+  options: RequestInit & { accessToken?: string | undefined } = {},
 ): Promise<T> {
   const { accessToken, ...fetchOptions } = options;
   const headers: Record<string, string> = {
@@ -20,7 +20,7 @@ export async function apiFetch<T>(
     const body = (await res.json().catch(() => ({}))) as { error?: { message?: string; code?: string } };
     const message = body.error?.message ?? res.statusText;
     const error = new Error(message) as Error & { code?: string; status?: number };
-    error.code = body.error?.code;
+    if (body.error?.code !== undefined) error.code = body.error.code;
     error.status = res.status;
     throw error;
   }

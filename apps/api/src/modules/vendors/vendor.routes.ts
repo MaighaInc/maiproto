@@ -14,10 +14,10 @@ export function createVendorRouter(vendorService: VendorService, jwtService: Jwt
   const auth = authenticate(jwtService);
 
   router.get('/', auth, validate(vendorQuerySchema, 'query'), asyncHandler(async (req, res) => {
-    const { page = 1, pageSize = 20, search, organizationId } = req.query as {
+    const { page = 1, pageSize = 20, search, organizationId } = req.query as unknown as {
       page?: number; pageSize?: number; search?: string; organizationId: string;
     };
-    const result = await vendorService.getVendors(req.tenantId!, organizationId, { page: Number(page), pageSize: Number(pageSize), search });
+    const result = await vendorService.getVendors(req.tenantId!, organizationId, { page: Number(page), pageSize: Number(pageSize), ...(search !== undefined ? { search } : {}) });
     res.json({ success: true, ...result });
   }));
 

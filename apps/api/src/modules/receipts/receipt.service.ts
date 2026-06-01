@@ -1,17 +1,18 @@
-import type { PrismaClient, Prisma } from '@receiptflow/database';
+import type { PrismaClient, Prisma, StorageProvider } from '@receiptflow/database';
 import type { IStorageProvider } from '@receiptflow/storage';
 import { Queue } from 'bullmq';
-import type { Redis } from 'ioredis';
 import { NotFoundError, PermissionError, BusinessRuleError } from '@receiptflow/shared/errors';
 import { QUEUE_NAMES, ALLOWED_MIME_TYPES, MAX_FILE_SIZE_BYTES, MAX_FILES_PER_UPLOAD } from '@receiptflow/shared/constants';
 import { receiptFileKey } from '@receiptflow/storage';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 
 export interface ReceiptServiceConfig {
   /** BullMQ job retry attempts for the OCR queue */
   ocrJobAttempts: number;
   /** Initial backoff delay (ms) for exponential retry */
   ocrJobBackoffDelayMs: number;
+  /** Storage provider in use (for tagging uploaded files) */
+  storageProvider: StorageProvider;
 }
 
 export interface ReceiptUploadInput {
@@ -49,11 +50,11 @@ export class ReceiptService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly storage: IStorageProvider,
-    redis: Redis,
-    config: ReceiptServiceConfig,
+    redisUrl: string,
+    private readonly config: ReceiptServiceConfig,
   ) {
     this.ocrQueue = new Queue(QUEUE_NAMES.OCR, {
-      connection: redis,
+      connection: { url: redisUrl },
       defaultJobOptions: {
         attempts: config.ocrJobAttempts,
         backoff: { type: 'exponential', delay: config.ocrJobBackoffDelayMs },
@@ -99,20 +100,26 @@ export class ReceiptService {
       },
     });
 
+    const checksum = createHash('sha256').update(file.buffer).digest('hex');
     await this.prisma.receipt.create({
       data: {
         id: receiptId,
         tenantId: input.tenantId,
         organizationId: input.organizationId,
-        uploadedById: input.uploadedById,
-        status: 'PENDING',
+        createdBy: input.uploadedById,
+        updatedBy: input.uploadedById,
+        status: 'DRAFT',
         files: {
           create: {
             tenantId: input.tenantId,
+            organizationId: input.organizationId,
             storageKey: fileKey,
             originalName: file.originalname,
             mimeType: file.mimetype,
-            fileSize: BigInt(file.size),
+            sizeBytes: file.size,
+            storageProvider: this.config.storageProvider,
+            checksum,
+            createdBy: input.uploadedById,
           },
         },
       },
@@ -138,7 +145,6 @@ export class ReceiptService {
       organizationId: input.organizationId,
       deletedAt: null,
       ...(input.status ? { status: input.status as never } : {}),
-      ...(input.vendorId ? { vendorId: input.vendorId } : {}),
       ...(input.categoryId ? { categoryId: input.categoryId } : {}),
       ...(input.dateFrom || input.dateTo
         ? {
@@ -151,16 +157,15 @@ export class ReceiptService {
       ...(input.amountMin !== undefined || input.amountMax !== undefined
         ? {
             total: {
-              ...(input.amountMin !== undefined ? { gte: BigInt(Math.round(input.amountMin * 100)) } : {}),
-              ...(input.amountMax !== undefined ? { lte: BigInt(Math.round(input.amountMax * 100)) } : {}),
+              ...(input.amountMin !== undefined ? { gte: input.amountMin } : {}),
+              ...(input.amountMax !== undefined ? { lte: input.amountMax } : {}),
             },
           }
         : {}),
       ...(input.search
         ? {
             OR: [
-              { metadata: { path: ['merchantName'], string_contains: input.search } },
-              { vendor: { name: { contains: input.search, mode: 'insensitive' } } },
+              { merchantName: { contains: input.search, mode: 'insensitive' } },
             ],
           }
         : {}),
@@ -178,13 +183,12 @@ export class ReceiptService {
         select: {
           id: true,
           status: true,
+          merchantName: true,
           transactionDate: true,
           total: true,
           createdAt: true,
-          vendor: { select: { id: true, name: true } },
           category: { select: { id: true, name: true, code: true } },
-          files: { select: { id: true, mimeType: true, fileSize: true }, take: 1 },
-          metadata: { select: { merchantName: true, total: true, transactionDate: true } },
+          files: { select: { id: true, mimeType: true, sizeBytes: true }, take: 1 },
         },
       }),
     ]);
@@ -207,7 +211,6 @@ export class ReceiptService {
         files: true,
         metadata: true,
         lineItems: true,
-        vendor: true,
         category: true,
         tags: { include: { tag: true } },
         comments: {
@@ -218,7 +221,6 @@ export class ReceiptService {
         approvals: {
           orderBy: { createdAt: 'desc' },
           take: 1,
-          include: { assignee: { select: { id: true, firstName: true, lastName: true } } },
         },
       },
     });
@@ -229,10 +231,10 @@ export class ReceiptService {
   async deleteReceipt(id: string, tenantId: string, organizationId: string, userId: string): Promise<void> {
     const receipt = await this.prisma.receipt.findFirst({
       where: { id, tenantId, organizationId, deletedAt: null },
-      select: { id: true, uploadedById: true, status: true },
+      select: { id: true, createdBy: true, status: true },
     });
     if (!receipt) throw new NotFoundError('Receipt not found');
-    if (receipt.uploadedById !== userId) throw new PermissionError('Cannot delete another user\'s receipt');
+    if (receipt.createdBy !== userId) throw new PermissionError('Cannot delete another user\'s receipt');
     if (receipt.status === 'APPROVED') throw new BusinessRuleError('Approved receipts cannot be deleted');
 
     await this.prisma.receipt.update({

@@ -20,7 +20,7 @@ interface SpendByCategory {
 
 export default async function ReportsPage(): Promise<React.JSX.Element> {
   const session = await auth();
-  const token = session?.user?.['accessToken'] as string | undefined;
+  const token = session?.user?.accessToken;
 
   const now = new Date();
   const dateFrom = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();

@@ -54,7 +54,7 @@ export class BillingService {
 
   async createPortalSession(tenantId: string, returnUrl: string): Promise<{ url: string }> {
     const subscription = await this.prisma.subscription.findFirst({
-      where: { tenantId, deletedAt: null },
+      where: { tenantId },
       select: { stripeCustomerId: true },
     });
     if (!subscription?.stripeCustomerId) {
@@ -100,7 +100,7 @@ export class BillingService {
     const stripeSub = await this.stripe.subscriptions.retrieve(session.subscription as string);
 
     await this.prisma.subscription.upsert({
-      where: { tenantId },
+      where: { stripeSubscriptionId: stripeSub.id },
       create: {
         tenantId,
         stripeCustomerId: session.customer as string,
@@ -132,15 +132,14 @@ export class BillingService {
       data: {
         tenantId: sub.tenantId,
         subscriptionId: sub.id,
-        stripeInvoiceId: invoice.id,
-        amount: BigInt(invoice.amount_paid),
+        stripeId: invoice.id,
+        amountDue: invoice.amount_due,
+        amountPaid: invoice.amount_paid,
         currency: invoice.currency,
         status: 'PAID',
-        paidAt: invoice.status_transitions.paid_at
-          ? new Date(invoice.status_transitions.paid_at * 1000)
-          : new Date(),
-        invoiceUrl: invoice.hosted_invoice_url ?? '',
-        invoicePdf: invoice.invoice_pdf ?? '',
+        periodStart: new Date((invoice.period_start as number) * 1000),
+        periodEnd: new Date((invoice.period_end as number) * 1000),
+        ...(invoice.invoice_pdf ? { pdfUrl: invoice.invoice_pdf } : {}),
       },
     });
   }
@@ -148,7 +147,7 @@ export class BillingService {
   private async handleSubscriptionDeleted(stripeSub: Stripe.Subscription): Promise<void> {
     await this.prisma.subscription.updateMany({
       where: { stripeSubscriptionId: stripeSub.id },
-      data: { status: 'CANCELED', canceledAt: new Date() },
+      data: { status: 'CANCELLED', cancelledAt: new Date() },
     });
   }
 }

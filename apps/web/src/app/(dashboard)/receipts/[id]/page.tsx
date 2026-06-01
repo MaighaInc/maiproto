@@ -10,21 +10,19 @@ interface ReceiptDetail {
   id: string;
   status: string;
   createdAt: string;
-  vendor: { name: string } | null;
-  metadata: {
-    merchantName: string | null;
-    merchantAddress: string | null;
-    transactionDate: string | null;
-    subtotal: number | null;
-    tax: number | null;
-    tip: number | null;
-    total: number | null;
-    currency: string;
-    paymentMethod: string | null;
-    last4Digits: string | null;
-  } | null;
-  lineItems: Array<{ id: string; description: string; quantity: number; unitPrice: number | null; totalPrice: number | null }>;
-  files: Array<{ id: string; storageKey: string; mimeType: string }>;
+  // Fields populated by OCR worker
+  merchantName: string | null;
+  merchantAddress: string | null;
+  transactionDate: string | null;
+  subtotal: string | null;
+  tax: string | null;
+  tip: string | null;
+  total: string | null;
+  currency: string | null;
+  paymentMethod: string | null;
+  last4Digits: string | null;
+  lineItems: Array<{ id: string; description: string; quantity: number | null; unitPrice: string | null; amount: string | null }>;
+  files: Array<{ id: string; storageKey: string; mimeType: string; originalName: string }>;
 }
 
 export default async function ReceiptDetailPage({
@@ -33,7 +31,7 @@ export default async function ReceiptDetailPage({
   params: Promise<{ id: string }>;
 }): Promise<React.JSX.Element> {
   const session = await auth();
-  const token = session?.user?.['accessToken'] as string | undefined;
+  const token = session?.user?.accessToken;
   const { id } = await params;
 
   let receipt: ReceiptDetail;
@@ -44,14 +42,16 @@ export default async function ReceiptDetailPage({
     notFound();
   }
 
-  const meta = receipt.metadata;
+  const isProcessing = receipt.status === 'DRAFT' || receipt.status === 'PROCESSING';
+  const hasData = receipt.merchantName ?? receipt.total ?? receipt.transactionDate;
+  const currency = receipt.currency ?? 'USD';
 
   return (
     <div className="max-w-3xl space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">
-            {receipt.vendor?.name ?? meta?.merchantName ?? 'Receipt'}
+            {receipt.merchantName ?? 'Receipt'}
           </h1>
           <p className="text-muted-foreground text-sm">{id}</p>
         </div>
@@ -60,50 +60,63 @@ export default async function ReceiptDetailPage({
         </span>
       </div>
 
-      {meta && (
+      {isProcessing && !hasData && (
+        <div className="rounded-xl border bg-amber-50 border-amber-200 p-6 text-center space-y-2">
+          <p className="font-medium text-amber-800">Extracting receipt data…</p>
+          <p className="text-sm text-amber-700">The OCR worker is processing your file. Refresh in a moment.</p>
+          <a
+            href={`/receipts/${id}`}
+            className="inline-block mt-2 rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 transition-colors"
+          >
+            Refresh
+          </a>
+        </div>
+      )}
+
+      {hasData && (
         <div className="rounded-xl border bg-card p-6 space-y-4">
           <h2 className="font-semibold">Receipt Details</h2>
           <dl className="grid grid-cols-2 gap-3 text-sm">
-            {meta.transactionDate && (
+            {receipt.transactionDate && (
               <>
                 <dt className="text-muted-foreground">Date</dt>
-                <dd>{formatDate(meta.transactionDate)}</dd>
+                <dd>{formatDate(receipt.transactionDate)}</dd>
               </>
             )}
-            {meta.merchantAddress && (
+            {receipt.merchantAddress && (
               <>
                 <dt className="text-muted-foreground">Address</dt>
-                <dd>{meta.merchantAddress}</dd>
+                <dd>{receipt.merchantAddress}</dd>
               </>
             )}
-            {meta.paymentMethod && (
+            {receipt.paymentMethod && (
               <>
                 <dt className="text-muted-foreground">Payment</dt>
-                <dd>{meta.paymentMethod}{meta.last4Digits ? ` •••• ${meta.last4Digits}` : ''}</dd>
+                <dd>{receipt.paymentMethod}{receipt.last4Digits ? ` •••• ${receipt.last4Digits}` : ''}</dd>
               </>
             )}
-            {meta.subtotal != null && (
+            {receipt.subtotal != null && (
               <>
                 <dt className="text-muted-foreground">Subtotal</dt>
-                <dd>{formatCurrency(meta.subtotal, meta.currency)}</dd>
+                <dd>{formatCurrency(Number(receipt.subtotal), currency)}</dd>
               </>
             )}
-            {meta.tax != null && (
+            {receipt.tax != null && (
               <>
                 <dt className="text-muted-foreground">Tax</dt>
-                <dd>{formatCurrency(meta.tax, meta.currency)}</dd>
+                <dd>{formatCurrency(Number(receipt.tax), currency)}</dd>
               </>
             )}
-            {meta.tip != null && (
+            {receipt.tip != null && (
               <>
                 <dt className="text-muted-foreground">Tip</dt>
-                <dd>{formatCurrency(meta.tip, meta.currency)}</dd>
+                <dd>{formatCurrency(Number(receipt.tip), currency)}</dd>
               </>
             )}
-            {meta.total != null && (
+            {receipt.total != null && (
               <>
                 <dt className="font-medium">Total</dt>
-                <dd className="font-bold text-lg">{formatCurrency(meta.total, meta.currency)}</dd>
+                <dd className="font-bold text-lg">{formatCurrency(Number(receipt.total), currency)}</dd>
               </>
             )}
           </dl>
@@ -126,17 +139,29 @@ export default async function ReceiptDetailPage({
               {receipt.lineItems.map((item) => (
                 <tr key={item.id} className="border-b last:border-0">
                   <td className="px-4 py-2">{item.description}</td>
-                  <td className="px-4 py-2 text-right tabular-nums">{item.quantity}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{item.quantity ?? '—'}</td>
                   <td className="px-4 py-2 text-right tabular-nums">
-                    {item.unitPrice != null ? formatCurrency(item.unitPrice) : '—'}
+                    {item.unitPrice != null ? formatCurrency(Number(item.unitPrice), currency) : '—'}
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums font-medium">
-                    {item.totalPrice != null ? formatCurrency(item.totalPrice) : '—'}
+                    {item.amount != null ? formatCurrency(Number(item.amount), currency) : '—'}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {receipt.files.length > 0 && (
+        <div className="rounded-xl border bg-card p-6 space-y-2">
+          <h2 className="font-semibold mb-3">Files</h2>
+          {receipt.files.map((f) => (
+            <div key={f.id} className="flex items-center gap-3 text-sm">
+              <span className="text-muted-foreground">{f.mimeType}</span>
+              <span>{f.originalName}</span>
+            </div>
+          ))}
         </div>
       )}
     </div>

@@ -2,8 +2,9 @@ import type { IAIProvider } from './types.js';
 import { OpenAIProvider, type OpenAIConfig } from './providers/openai.js';
 import { ClaudeProvider, type ClaudeConfig } from './providers/claude.js';
 import { GeminiProvider, type GeminiConfig } from './providers/gemini.js';
+import { MockAIProvider } from './providers/mock.js';
 
-export type AIProviderType = 'openai' | 'claude' | 'gemini';
+export type AIProviderType = 'openai' | 'claude' | 'gemini' | 'mock';
 
 export interface AIFactoryConfig {
   provider: AIProviderType;
@@ -26,6 +27,8 @@ export function createAIProvider(config: AIFactoryConfig): IAIProvider {
       if (!config.gemini) throw new Error('Gemini config required when provider is "gemini"');
       return new GeminiProvider(config.gemini);
     }
+    case 'mock':
+      return new MockAIProvider();
     default:
       throw new Error(`Unknown AI provider: ${String(config.provider)}`);
   }
@@ -36,3 +39,4 @@ export type { ReceiptExtractionResult, CategorizationResult, SearchFilter, LineI
 export { OpenAIProvider } from './providers/openai.js';
 export { ClaudeProvider } from './providers/claude.js';
 export { GeminiProvider } from './providers/gemini.js';
+export { MockAIProvider } from './providers/mock.js';

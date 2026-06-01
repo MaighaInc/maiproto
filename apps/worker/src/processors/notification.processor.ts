@@ -1,5 +1,4 @@
 import { Worker, type Job } from 'bullmq';
-import type { Redis } from 'ioredis';
 import type { PrismaClient } from '@receiptflow/database';
 import type { IEmailProvider } from '@receiptflow/notifications';
 import { receiptApprovalRequestTemplate } from '@receiptflow/notifications';
@@ -17,7 +16,7 @@ export interface NotificationWorkerConfig {
 }
 
 export function createNotificationWorker(
-  redis: Redis,
+  redisUrl: string,
   prisma: PrismaClient,
   emailProvider: IEmailProvider,
   emailFrom: { email: string; name: string },
@@ -41,7 +40,7 @@ export function createNotificationWorker(
           logger.warn({ type }, 'Unknown notification type');
       }
     },
-    { connection: redis, concurrency: config.concurrency },
+    { connection: { url: redisUrl }, concurrency: config.concurrency },
   );
 }
 
@@ -54,13 +53,13 @@ async function handleApprovalRequest(
   const { approvalId } = payload as { approvalId: string };
 
   const approval = await prisma.approval.findFirst({
-    where: { id: approvalId, deletedAt: null },
+    where: { id: approvalId },
     include: {
-      assignee: { select: { email: true, firstName: true, lastName: true } },
-      receipt: {
+      requester: { select: { firstName: true, lastName: true } },
+      receipt: true,
+      workflow: {
         include: {
-          metadata: { select: { merchantName: true, total: true } },
-          uploadedBy: { select: { firstName: true, lastName: true } },
+          steps: { take: 1, orderBy: { stepOrder: 'asc' } },
         },
       },
     },
@@ -68,19 +67,30 @@ async function handleApprovalRequest(
 
   if (!approval) return;
 
+  // Find the approver from the first workflow step
+  const approverStep = approval.workflow.steps[0];
+  if (!approverStep) return;
+
+  const approver = await prisma.user.findUnique({
+    where: { id: approverStep.approverId },
+    select: { email: true, firstName: true, lastName: true },
+  });
+
+  if (!approver) return;
+
   const template = receiptApprovalRequestTemplate({
-    approverName: approval.assignee.firstName,
-    submitterName: `${approval.receipt.uploadedBy.firstName} ${approval.receipt.uploadedBy.lastName}`,
+    approverName: approver.firstName,
+    submitterName: `${approval.requester.firstName} ${approval.requester.lastName}`,
     receiptId: approval.receiptId,
-    vendor: approval.receipt.metadata?.merchantName ?? 'Unknown',
-    amount: approval.receipt.metadata?.total
-      ? `$${(Number(approval.receipt.metadata.total) / 100).toFixed(2)}`
+    vendor: approval.receipt.merchantName ?? 'Unknown',
+    amount: approval.receipt.total
+      ? `$${Number(approval.receipt.total).toFixed(2)}`
       : 'N/A',
   });
 
   await emailProvider.send({
     from: emailFrom,
-    to: { email: approval.assignee.email, name: `${approval.assignee.firstName} ${approval.assignee.lastName}` },
+    to: { email: approver.email, name: `${approver.firstName} ${approver.lastName}` },
     ...template,
   });
 }
@@ -91,19 +101,23 @@ async function handleReceiptProcessed(
   emailFrom: { email: string; name: string },
   payload: Record<string, unknown>,
 ): Promise<void> {
-  // Stub — implement as needed
   const { receiptId } = payload as { receiptId: string };
   const receipt = await prisma.receipt.findFirst({
-    where: { id: receiptId, deletedAt: null },
-    include: { uploadedBy: { select: { email: true, firstName: true } } },
+    where: { id: receiptId },
   });
   if (!receipt) return;
 
+  const uploader = await prisma.user.findUnique({
+    where: { id: receipt.createdBy },
+    select: { email: true, firstName: true },
+  });
+  if (!uploader) return;
+
   await emailProvider.send({
     from: emailFrom,
-    to: { email: receipt.uploadedBy.email, name: receipt.uploadedBy.firstName },
+    to: { email: uploader.email, name: uploader.firstName },
     subject: 'Your receipt has been processed',
-    html: `<p>Hi ${receipt.uploadedBy.firstName}, your receipt has been processed and is ready to review.</p>`,
-    text: `Hi ${receipt.uploadedBy.firstName}, your receipt has been processed.`,
+    html: `<p>Hi ${uploader.firstName}, your receipt has been processed and is ready to review.</p>`,
+    text: `Hi ${uploader.firstName}, your receipt has been processed.`,
   });
 }

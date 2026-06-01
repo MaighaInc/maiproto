@@ -17,7 +17,7 @@ interface ApprovalReceipt {
 
 export default async function ApprovalsPage(): Promise<React.JSX.Element> {
   const session = await auth();
-  const token = session?.user?.['accessToken'] as string | undefined;
+  const token = session?.user?.accessToken;
 
   let items: ApprovalReceipt[] = [];
   let total = 0;

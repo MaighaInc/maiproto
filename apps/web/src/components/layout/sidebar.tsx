@@ -1,5 +1,6 @@
 'use client';
 
+import type { Route } from 'next';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -41,7 +42,7 @@ export default function Sidebar(): React.JSX.Element {
         {navItems.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
-            href={href}
+            href={href as Route}
             className={cn(
               'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
               pathname === href || pathname.startsWith(`${href}/`)
@@ -59,7 +60,7 @@ export default function Sidebar(): React.JSX.Element {
         {bottomItems.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
-            href={href}
+            href={href as Route}
             className={cn(
               'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
               pathname === href

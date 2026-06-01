@@ -2,8 +2,9 @@ import type { IOCRProvider } from './types.js';
 import { TextractProvider, type TextractConfig } from './providers/textract.js';
 import { DocumentAIProvider, type DocumentAIConfig } from './providers/document-ai.js';
 import { FormRecognizerProvider, type FormRecognizerConfig } from './providers/form-recognizer.js';
+import { MockOCRProvider } from './providers/mock.js';
 
-export type OCRProviderType = 'textract' | 'documentai' | 'formrecognizer';
+export type OCRProviderType = 'textract' | 'documentai' | 'formrecognizer' | 'mock';
 
 export interface OCRFactoryConfig {
   provider: OCRProviderType;
@@ -26,6 +27,8 @@ export function createOCRProvider(config: OCRFactoryConfig): IOCRProvider {
       if (!config.formRecognizer) throw new Error('Form Recognizer config required');
       return new FormRecognizerProvider(config.formRecognizer);
     }
+    case 'mock':
+      return new MockOCRProvider();
     default:
       throw new Error(`Unknown OCR provider: ${String(config.provider)}`);
   }
@@ -35,3 +38,4 @@ export type { IOCRProvider, OCRResult, OCRPage, OCRBlock, OCROptions } from './t
 export { TextractProvider } from './providers/textract.js';
 export { DocumentAIProvider } from './providers/document-ai.js';
 export { FormRecognizerProvider } from './providers/form-recognizer.js';
+export { MockOCRProvider } from './providers/mock.js';

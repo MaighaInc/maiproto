@@ -28,8 +28,8 @@ export function createAccountingRouter(accountingService: AccountingService, jwt
 
   // GET /accounting/journal-entries
   router.get('/journal-entries', auth, validate(dateRangeQuery, 'query'), asyncHandler(async (req, res) => {
-    const { organizationId, page, pageSize, dateFrom, dateTo, status } = req.query as z.infer<typeof dateRangeQuery>;
-    const result = await accountingService.getJournalEntries(req.tenantId!, organizationId, { page, pageSize, dateFrom, dateTo, status });
+    const { organizationId, page, pageSize, dateFrom, dateTo, status } = req.query as unknown as z.infer<typeof dateRangeQuery>;
+    const result = await accountingService.getJournalEntries(req.tenantId!, organizationId, { page, pageSize, ...(dateFrom !== undefined ? { dateFrom } : {}), ...(dateTo !== undefined ? { dateTo } : {}), ...(status !== undefined ? { status } : {}) });
     res.json({ success: true, ...result });
   }));
 
@@ -54,7 +54,7 @@ export function createAccountingRouter(accountingService: AccountingService, jwt
 
   // GET /accounting/bank-accounts/:id/transactions
   router.get('/bank-accounts/:id/transactions', auth, asyncHandler(async (req, res) => {
-    const { organizationId, page = '1', pageSize = '20' } = req.query as Record<string, string>;
+    const { organizationId = '', page = '1', pageSize = '20' } = req.query as Record<string, string | undefined>;
     const result = await accountingService.getBankTransactions(
       req.tenantId!,
       organizationId,

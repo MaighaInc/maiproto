@@ -1,9 +1,8 @@
 import { Worker, type Job } from 'bullmq';
-import type { Redis } from 'ioredis';
 import type { PrismaClient } from '@receiptflow/database';
 import type { IOCRProvider } from '@receiptflow/ocr';
 import type { IStorageProvider } from '@receiptflow/storage';
-import type { IAIProvider, ExtractReceiptDataResult } from '@receiptflow/ai';
+import type { IAIProvider, ReceiptExtractionResult } from '@receiptflow/ai';
 import { QUEUE_NAMES } from '@receiptflow/shared/constants';
 import type { Logger } from 'pino';
 
@@ -17,11 +16,6 @@ export interface OCRJobData {
   organizationId: string;
   storageKey: string;
   mimeType: string;
-}
-
-/** Convert a decimal dollar amount to BigInt cents, or null if undefined. */
-function toCents(amount: number | null | undefined): bigint | null {
-  return amount != null ? BigInt(Math.round(amount * 100)) : null;
 }
 
 // ─── Sub-functions ────────────────────────────────────────────────────────────
@@ -48,41 +42,11 @@ async function persistOCRRecord(
       receiptId,
       tenantId,
       provider: ocr.providerName as never,
-      fullText: ocrResult.fullText,
+      rawText: ocrResult.fullText,
       confidence: ocrResult.confidence,
-      pageCount: ocrResult.pages.length,
-      rawData: ocrResult.providerMetadata as never,
-      processingTimeMs: ocrResult.durationMs,
-    },
-  });
-}
-
-async function persistExtractedMetadata(
-  prisma: PrismaClient,
-  receiptId: string,
-  tenantId: string,
-  ocrId: string,
-  ai: IAIProvider,
-  extraction: ExtractReceiptDataResult,
-) {
-  return prisma.receiptMetadata.create({
-    data: {
-      receiptId,
-      tenantId,
-      ocrId,
-      merchantName: extraction.merchantName ?? null,
-      merchantAddress: extraction.merchantAddress ?? null,
-      merchantPhone: extraction.merchantPhone ?? null,
-      transactionDate: extraction.transactionDate ? new Date(extraction.transactionDate) : null,
-      subtotal: toCents(extraction.subtotal),
-      tax: toCents(extraction.tax),
-      tip: toCents(extraction.tip),
-      total: toCents(extraction.total),
-      currency: extraction.currency ?? 'USD',
-      paymentMethod: extraction.paymentMethod ?? null,
-      last4Digits: extraction.last4Digits ?? null,
-      aiConfidence: extraction.confidence,
-      aiProvider: ai.providerName as never,
+      blocks: ocrResult.pages as never,
+      providerMetadata: ocrResult.providerMetadata as never,
+      durationMs: ocrResult.durationMs,
     },
   });
 }
@@ -91,7 +55,7 @@ async function persistLineItems(
   prisma: PrismaClient,
   receiptId: string,
   tenantId: string,
-  lineItems: NonNullable<ExtractReceiptDataResult['lineItems']>,
+  lineItems: NonNullable<ReceiptExtractionResult['lineItems']>,
 ) {
   if (!lineItems.length) return;
   await prisma.receiptLineItem.createMany({
@@ -99,10 +63,10 @@ async function persistLineItems(
       receiptId,
       tenantId,
       description: item.description,
-      quantity: item.quantity ?? 1,
-      unitPrice: toCents(item.unitPrice),
-      totalPrice: toCents(item.totalPrice),
-      category: item.category ?? null,
+      quantity: item.quantity ?? null,
+      unitPrice: item.unitPrice ?? null,
+      amount: item.amount,
+      taxable: item.taxable ?? false,
     })),
   });
 }
@@ -110,14 +74,28 @@ async function persistLineItems(
 async function finaliseReceipt(
   prisma: PrismaClient,
   receiptId: string,
-  extraction: ExtractReceiptDataResult,
+  ai: IAIProvider,
+  extraction: ReceiptExtractionResult,
 ) {
   await prisma.receipt.update({
     where: { id: receiptId },
     data: {
-      status: 'EXTRACTED',
-      transactionDate: extraction.transactionDate ? new Date(extraction.transactionDate) : undefined,
-      total: toCents(extraction.total) ?? undefined,
+      status: 'PROCESSED',
+      merchantName: extraction.merchantName,
+      merchantAddress: extraction.merchantAddress,
+      merchantPhone: extraction.merchantPhone,
+      transactionDate: extraction.transactionDate ? new Date(extraction.transactionDate) : null,
+      transactionTime: extraction.transactionTime,
+      subtotal: extraction.subtotal,
+      tax: extraction.tax,
+      tip: extraction.tip,
+      total: extraction.total,
+      currency: extraction.currency,
+      paymentMethod: extraction.paymentMethod,
+      last4Digits: extraction.last4Digits,
+      aiConfidence: extraction.confidence,
+      aiProvider: ai.providerName as never,
+      extractedAt: new Date(),
     },
   });
 }
@@ -125,7 +103,7 @@ async function finaliseReceipt(
 // ─── Worker factory ───────────────────────────────────────────────────────────
 
 export function createOCRWorker(
-  redis: Redis,
+  redisUrl: string,
   prisma: PrismaClient,
   ocr: IOCRProvider,
   storage: IStorageProvider,
@@ -142,18 +120,17 @@ export function createOCRWorker(
       await prisma.receipt.update({ where: { id: receiptId }, data: { status: 'PROCESSING' } });
 
       const ocrResult = await runOCR(storage, ocr, storageKey, mimeType);
-      const ocrRecord = await persistOCRRecord(prisma, receiptId, tenantId, ocr, ocrResult);
+      await persistOCRRecord(prisma, receiptId, tenantId, ocr, ocrResult);
 
       const extraction = await ai.extractReceiptData({ ocrText: ocrResult.fullText });
 
-      await persistExtractedMetadata(prisma, receiptId, tenantId, ocrRecord.id, ai, extraction);
       await persistLineItems(prisma, receiptId, tenantId, extraction.lineItems ?? []);
-      await finaliseReceipt(prisma, receiptId, extraction);
+      await finaliseReceipt(prisma, receiptId, ai, extraction);
 
       logger.info({ receiptId }, 'OCR and AI extraction complete');
     },
     {
-      connection: redis,
+      connection: { url: redisUrl },
       concurrency: config.concurrency,
     },
   );

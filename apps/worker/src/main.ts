@@ -3,7 +3,7 @@ import { createAIProvider } from '@receiptflow/ai';
 import { createOCRProvider } from '@receiptflow/ocr';
 import { createStorageProvider } from '@receiptflow/storage';
 import { createEmailProvider } from '@receiptflow/notifications';
-import { getRedis, closeRedis } from './config/redis.js';
+import { closeRedis } from './config/redis.js';
 import { logger } from './config/logger.js';
 import { getConfig } from './config/env.js';
 
@@ -15,13 +15,12 @@ import { createWebhookWorker } from './processors/webhook.processor.js';
 
 async function main(): Promise<void> {
   const env = getConfig();
-  const redis = getRedis();
 
   const ai = createAIProvider({
     provider: env.AI_PROVIDER,
-    ...(env.AI_PROVIDER === 'openai' ? { openai: { apiKey: env.AI_API_KEY } } : {}),
-    ...(env.AI_PROVIDER === 'claude' ? { claude: { apiKey: env.AI_API_KEY } } : {}),
-    ...(env.AI_PROVIDER === 'gemini' ? { gemini: { apiKey: env.AI_API_KEY } } : {}),
+    ...(env.AI_PROVIDER === 'openai' && env.AI_API_KEY ? { openai: { apiKey: env.AI_API_KEY, model: env.AI_MODEL } } : {}),
+    ...(env.AI_PROVIDER === 'claude' && env.AI_API_KEY ? { claude: { apiKey: env.AI_API_KEY, model: env.AI_MODEL } } : {}),
+    ...(env.AI_PROVIDER === 'gemini' && env.AI_API_KEY ? { gemini: { apiKey: env.AI_API_KEY, model: env.AI_MODEL } } : {}),
   });
 
   const ocr = createOCRProvider({
@@ -30,13 +29,15 @@ async function main(): Promise<void> {
       ? { textract: { region: env.AWS_REGION!, accessKeyId: env.AWS_ACCESS_KEY_ID!, secretAccessKey: env.AWS_SECRET_ACCESS_KEY! } }
       : env.OCR_PROVIDER === 'documentai'
       ? { documentAI: { projectId: env.GCP_PROJECT_ID!, processorId: env.DOCUMENTAI_PROCESSOR_ID!, location: env.DOCUMENTAI_LOCATION ?? 'us' } }
-      : { formRecognizer: { endpoint: env.AZURE_FORM_RECOGNIZER_ENDPOINT!, apiKey: env.AZURE_FORM_RECOGNIZER_KEY! } }),
+      : env.OCR_PROVIDER === 'formrecognizer'
+      ? { formRecognizer: { endpoint: env.AZURE_FORM_RECOGNIZER_ENDPOINT!, apiKey: env.AZURE_FORM_RECOGNIZER_KEY! } }
+      : {}),  // mock — no extra config needed
   });
 
   const storage = createStorageProvider({
     provider: env.STORAGE_PROVIDER,
     ...(env.STORAGE_PROVIDER === 's3'
-      ? { s3: { region: env.AWS_REGION!, bucket: env.AWS_S3_BUCKET!, accessKeyId: env.AWS_ACCESS_KEY_ID!, secretAccessKey: env.AWS_SECRET_ACCESS_KEY! } }
+      ? { s3: { region: env.AWS_REGION!, bucket: env.S3_BUCKET!, accessKeyId: env.AWS_ACCESS_KEY_ID!, secretAccessKey: env.AWS_SECRET_ACCESS_KEY! } }
       : env.STORAGE_PROVIDER === 'r2'
       ? { r2: { accountId: env.R2_ACCOUNT_ID!, bucket: env.R2_BUCKET!, accessKeyId: env.R2_ACCESS_KEY_ID!, secretAccessKey: env.R2_SECRET_ACCESS_KEY! } }
       : { local: { basePath: env.LOCAL_STORAGE_DIR ?? './uploads', baseUrl: 'http://localhost:3001/uploads' } }),
@@ -54,19 +55,19 @@ async function main(): Promise<void> {
   const emailFrom = { email: env.EMAIL_FROM_ADDRESS, name: env.EMAIL_FROM_NAME };
 
   const workers = [
-    createOCRWorker(redis, prisma, ocr, storage, ai, logger, {
+    createOCRWorker(env.REDIS_URL, prisma, ocr, storage, ai, logger, {
       concurrency: env.OCR_CONCURRENCY,
     }),
-    createCategorizationWorker(redis, prisma, ai, logger, {
+    createCategorizationWorker(env.REDIS_URL, prisma, ai, logger, {
       concurrency: env.CATEGORIZATION_CONCURRENCY,
     }),
-    createNotificationWorker(redis, prisma, emailProvider, emailFrom, logger, {
+    createNotificationWorker(env.REDIS_URL, prisma, emailProvider, emailFrom, logger, {
       concurrency: env.NOTIFICATION_CONCURRENCY,
     }),
-    createJournalWorker(redis, prisma, logger, {
+    createJournalWorker(env.REDIS_URL, prisma, logger, {
       concurrency: env.JOURNAL_CONCURRENCY,
     }),
-    createWebhookWorker(redis, prisma, logger, {
+    createWebhookWorker(env.REDIS_URL, prisma, logger, {
       maxAttempts: env.WEBHOOK_MAX_ATTEMPTS,
       backoffBaseMs: env.WEBHOOK_BACKOFF_BASE_MS,
       requestTimeoutMs: env.WEBHOOK_REQUEST_TIMEOUT_MS,

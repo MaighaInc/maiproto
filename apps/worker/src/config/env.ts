@@ -4,9 +4,9 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   REDIS_URL: z.string().default('redis://localhost:6379'),
   DATABASE_URL: z.string(),
-  AI_PROVIDER: z.enum(['openai', 'claude', 'gemini']).default('openai'),
-  AI_API_KEY: z.string(),
-  OCR_PROVIDER: z.enum(['textract', 'documentai', 'formrecognizer']).default('textract'),
+  AI_PROVIDER: z.enum(['openai', 'claude', 'gemini', 'mock']).default('openai'),
+  AI_API_KEY: z.string().optional(),
+  OCR_PROVIDER: z.enum(['textract', 'documentai', 'formrecognizer', 'mock']).default('textract'),
   AWS_REGION: z.string().optional(),
   AWS_ACCESS_KEY_ID: z.string().optional(),
   AWS_SECRET_ACCESS_KEY: z.string().optional(),
@@ -32,6 +32,8 @@ const envSchema = z.object({
   SMTP_SECURE: z.coerce.boolean().optional(),
   SENDGRID_API_KEY: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
+
+  AI_MODEL: z.string().default('gpt-4o'),
 
   // Worker concurrency — tune per deployment size
   OCR_CONCURRENCY: z.coerce.number().int().positive().default(5),

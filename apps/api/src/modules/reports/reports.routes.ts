@@ -19,7 +19,7 @@ export function createReportsRouter(reportsService: ReportsService, jwtService: 
   const auth = authenticate(jwtService);
 
   router.get('/expense-summary', auth, validate(reportQuery, 'query'), asyncHandler(async (req, res) => {
-    const { organizationId, dateFrom, dateTo } = req.query as z.infer<typeof reportQuery>;
+    const { organizationId, dateFrom, dateTo } = req.query as unknown as z.infer<typeof reportQuery>;
     const data = await reportsService.expenseSummary(
       req.tenantId!, organizationId, new Date(dateFrom), new Date(dateTo),
     );
@@ -27,7 +27,7 @@ export function createReportsRouter(reportsService: ReportsService, jwtService: 
   }));
 
   router.get('/tax', auth, validate(reportQuery, 'query'), asyncHandler(async (req, res) => {
-    const { organizationId, dateFrom, dateTo } = req.query as z.infer<typeof reportQuery>;
+    const { organizationId, dateFrom, dateTo } = req.query as unknown as z.infer<typeof reportQuery>;
     const data = await reportsService.taxReport(
       req.tenantId!, organizationId, new Date(dateFrom), new Date(dateTo),
     );
@@ -35,7 +35,7 @@ export function createReportsRouter(reportsService: ReportsService, jwtService: 
   }));
 
   router.get('/audit', auth, validate(reportQuery, 'query'), asyncHandler(async (req, res) => {
-    const { dateFrom, dateTo, page, pageSize } = req.query as z.infer<typeof reportQuery>;
+    const { dateFrom, dateTo, page, pageSize } = req.query as unknown as z.infer<typeof reportQuery>;
     const result = await reportsService.auditReport(
       req.tenantId!, new Date(dateFrom), new Date(dateTo), page, pageSize,
     );

@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
-import type { PrismaClient } from '@receiptflow/database';
+import type { PrismaClient, Prisma } from '@receiptflow/database';
 import type { AuditAction } from '@receiptflow/database';
 import { logger } from '../config/logger.js';
 
@@ -24,11 +24,11 @@ export function auditLog(prisma: PrismaClient, context: AuditContext) {
               userId: req.auth.sub,
               action: context.action,
               resource: context.resource,
-              resourceId: context.resourceId ?? extractResourceId(req),
+              resourceId: context.resourceId ?? extractResourceId(req) ?? null,
               ipAddress: req.ip ?? req.socket.remoteAddress ?? 'unknown',
               userAgent: req.headers['user-agent'] ?? 'unknown',
-              requestId: req.id,
-              metadata: context.metadata ?? {},
+              requestId: String(req.id),
+              metadata: (context.metadata ?? {}) as Prisma.InputJsonObject,
             },
           })
           .catch((err: unknown) => {

@@ -33,7 +33,7 @@ const envSchema = z.object({
   R2_BUCKET: z.string().optional(),
 
   // AI
-  AI_PROVIDER: z.enum(['openai', 'claude', 'gemini']).default('openai'),
+  AI_PROVIDER: z.enum(['openai', 'claude', 'gemini', 'mock']).default('openai'),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default('gpt-4o'),
   ANTHROPIC_API_KEY: z.string().optional(),
@@ -42,7 +42,7 @@ const envSchema = z.object({
   GEMINI_MODEL: z.string().default('gemini-1.5-pro'),
 
   // OCR
-  OCR_PROVIDER: z.enum(['textract', 'documentai', 'formrecognizer']).default('textract'),
+  OCR_PROVIDER: z.enum(['textract', 'documentai', 'formrecognizer', 'mock']).default('textract'),
   DOCUMENTAI_PROJECT_ID: z.string().optional(),
   DOCUMENTAI_LOCATION: z.string().optional(),
   DOCUMENTAI_PROCESSOR_ID: z.string().optional(),

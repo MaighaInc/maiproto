@@ -12,6 +12,7 @@ export interface CreateWebhookInput {
   events: string[];
   secret?: string;
   description?: string;
+  createdBy?: string;
 }
 
 export class WebhookService {
@@ -31,30 +32,28 @@ export class WebhookService {
     return this.prisma.webhook.create({
       data: {
         tenantId: input.tenantId,
-        organizationId: input.organizationId,
         url: input.url,
         events: input.events,
         secret,
-        description: input.description,
-        isActive: true,
+        createdBy: input.createdBy ?? '',
       },
     });
   }
 
-  async listWebhooks(tenantId: string, organizationId: string): Promise<unknown[]> {
+  async listWebhooks(tenantId: string, _organizationId: string): Promise<unknown[]> {
     return this.prisma.webhook.findMany({
-      where: { tenantId, organizationId, deletedAt: null },
+      where: { tenantId },
       select: {
-        id: true, url: true, events: true, isActive: true, description: true, createdAt: true,
+        id: true, url: true, events: true, createdAt: true,
         // Never return secret
       },
     });
   }
 
   async deleteWebhook(id: string, tenantId: string): Promise<void> {
-    const webhook = await this.prisma.webhook.findFirst({ where: { id, tenantId, deletedAt: null } });
+    const webhook = await this.prisma.webhook.findFirst({ where: { id, tenantId } });
     if (!webhook) throw new NotFoundError('Webhook not found');
-    await this.prisma.webhook.update({ where: { id }, data: { deletedAt: new Date() } });
+    await this.prisma.webhook.update({ where: { id }, data: { status: 'INACTIVE' } });
   }
 
   async dispatchWebhookEvent(
@@ -65,8 +64,7 @@ export class WebhookService {
     const webhooks = await this.prisma.webhook.findMany({
       where: {
         tenantId,
-        isActive: true,
-        deletedAt: null,
+        status: 'ACTIVE',
         events: { has: event },
       },
     });
