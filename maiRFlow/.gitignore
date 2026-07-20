@@ -1,0 +1,78 @@
+# ReceiptFlow AI – .gitignore
+
+# ─── Dependencies ─────────────────────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+
+# ─── Build outputs ─────────────────────────────────────────────────────────
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# ─── Environment ──────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+.env.development
+.env.test
+# .env.production is NOT ignored — it is a checked-in template with no real secrets
+# .env.example is also tracked
+
+# ─── Logs ─────────────────────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ─── Testing ──────────────────────────────────────────────────────────────
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+
+# ─── Cache ────────────────────────────────────────────────────────────────
+.turbo/
+.cache/
+.eslintcache
+.prettiercache
+
+# ─── IDE ──────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ─── OS ───────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── Uploads ──────────────────────────────────────────────────────────────
+uploads/
+tmp/
+
+# ─── Debug / temp scripts ─────────────────────────────────────────────────
+api-out.txt
+check-login.mjs
+
+# ─── Prisma ───────────────────────────────────────────────────────────────
+# NOTE: migrations/ is intentionally NOT ignored — migration files must be committed.
+
+# ─── Terraform ────────────────────────────────────────────────────────────
+infrastructure/terraform/.terraform/
+infrastructure/terraform/*.tfstate
+infrastructure/terraform/*.tfstate.backup
+infrastructure/terraform/.terraform.lock.hcl
+
+# ─── Secrets ──────────────────────────────────────────────────────────────
+*.pem
+*.key
+*.crt
+secrets/

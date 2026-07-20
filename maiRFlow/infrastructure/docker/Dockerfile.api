@@ -1,0 +1,32 @@
+FROM node:22-alpine AS base
+RUN npm install -g turbo@^2
+WORKDIR /app
+
+# Prune to API workspace
+FROM base AS pruner
+COPY . .
+RUN turbo prune @receiptflow/api --docker
+
+# Install dependencies
+FROM base AS installer
+COPY --from=pruner /app/out/json/ .
+COPY --from=pruner /app/out/package-lock.json ./package-lock.json
+RUN npm ci --frozen-lockfile
+
+# Build
+COPY --from=pruner /app/out/full/ .
+RUN turbo run build --filter=@receiptflow/api
+
+# Production image
+FROM node:22-alpine AS runner
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 receiptflow
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY --from=installer --chown=receiptflow:nodejs /app/apps/api/dist ./apps/api/dist
+COPY --from=installer --chown=receiptflow:nodejs /app/node_modules ./node_modules
+COPY --from=installer --chown=receiptflow:nodejs /app/apps/api/package.json ./apps/api/package.json
+
+USER receiptflow
+EXPOSE 3000
+CMD ["node", "apps/api/dist/main.js"]

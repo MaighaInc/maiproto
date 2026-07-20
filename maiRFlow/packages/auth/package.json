@@ -1,0 +1,53 @@
+{
+  "name": "@receiptflow/auth",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./jwt": {
+      "import": "./dist/jwt.js",
+      "types": "./dist/jwt.d.ts"
+    },
+    "./encryption": {
+      "import": "./dist/encryption.js",
+      "types": "./dist/encryption.d.ts"
+    },
+    "./mfa": {
+      "import": "./dist/mfa.js",
+      "types": "./dist/mfa.d.ts"
+    },
+    "./password": {
+      "import": "./dist/password.js",
+      "types": "./dist/password.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@receiptflow/shared": "*",
+    "jsonwebtoken": "^9.0.2",
+    "otplib": "^12.0.1",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^22.0.0",
+    "@types/qrcode": "^1.5.5",
+    "@vitest/coverage-v8": "^2.0.0",
+    "rimraf": "^6.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}
