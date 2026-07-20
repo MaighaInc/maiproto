@@ -28,6 +28,21 @@ A full-stack REST API prototype built with Node.js and Prisma ORM for managing u
 - Local: See [node/database/LOCAL.md](node/database/LOCAL.md) for setup instructions
 - Docker: See [node/database/DOCKER.md](node/database/DOCKER.md) for Docker deployment
 
+### 2. ReceiptFlow AI / maiRFlow (Turborepo monorepo)
+
+AI-powered receipt management platform. Upload receipts, extract data via OCR, categorise spend, generate journal entries, and get approval workflows.
+
+**Location**: `maiRFlow/`
+
+**Stack**:
+- Runtime: Node.js, TypeScript
+- Web: Next.js
+- API: Express
+- Worker: BullMQ
+- Monorepo: Turborepo
+
+**Quick Start**: See [maiRFlow/README.md](maiRFlow/README.md) for full setup instructions.
+
 ## Getting Started
 
 Each prototype has its own README with detailed setup and deployment instructions. Navigate to the prototype's directory to get started.
